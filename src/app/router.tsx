@@ -1,9 +1,11 @@
-import { createBrowserRouter } from 'react-router-dom'
+import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { DashboardLayout } from '@/app/layouts/dashboard-layout'
 import { LandingPage } from '@/app/routes/landing-page'
 import { NotFoundPage } from '@/app/routes/not-found-page'
 import { ProfilePage } from '@/app/routes/profile-page'
 import { AuthPage } from '@/features/auth/auth-page'
+import { RequireAuth, RequireOnboarded } from '@/features/auth/guards/route-guards'
+import { OnboardingPage } from '@/features/onboarding/onboarding-page'
 import { AuthCallbackPage } from '@/features/auth/auth-callback-page'
 import { DashboardHomePage } from '@/features/dashboard/dashboard-home-page'
 import { CapturePage } from '@/features/capture/capture-page'
@@ -18,15 +20,27 @@ export const router = createBrowserRouter([
   { path: '/auth', element: <AuthPage /> },
   { path: '/auth/callback', element: <AuthCallbackPage /> },
   {
-    path: '/dashboard',
-    element: <DashboardLayout />,
+    element: <RequireAuth />,
     children: [
-      { path: 'home', element: <DashboardHomePage /> },
-      { path: 'capture', element: <CapturePage /> },
-      { path: 'calendar', element: <CalendarPage /> },
-      { path: 'library', element: <LibraryPage /> },
-      { path: 'assistant', element: <AssistantPage /> },
-      { path: 'settings/*', element: <SettingsPage /> },
+      { path: '/onboarding', element: <OnboardingPage /> },
+      {
+        element: <RequireOnboarded />,
+        children: [
+          {
+            path: '/dashboard',
+            element: <DashboardLayout />,
+            children: [
+              { index: true, element: <Navigate to="home" replace /> },
+              { path: 'home', element: <DashboardHomePage /> },
+              { path: 'capture', element: <CapturePage /> },
+              { path: 'calendar', element: <CalendarPage /> },
+              { path: 'library', element: <LibraryPage /> },
+              { path: 'assistant', element: <AssistantPage /> },
+              { path: 'settings/*', element: <SettingsPage /> },
+            ],
+          },
+        ],
+      },
     ],
   },
   { path: '/profile/:id', element: <ProfilePage /> },
