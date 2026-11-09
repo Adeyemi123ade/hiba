@@ -1,13 +1,27 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const rawUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
+const rawKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  // Fails loudly in dev rather than silently shipping a broken client.
-  console.error(
-    'Missing Supabase env vars. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local',
-  )
+function findConfigProblem(): string | null {
+  if (!rawUrl || !rawKey) {
+    return 'VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing. Put both in a file named .env.local in the project root, then stop and restart "npm run dev".'
+  }
+  try {
+    new URL(rawUrl)
+  } catch {
+    return 'VITE_SUPABASE_URL is not a valid URL. It must look like https://xxxx.supabase.co with no quotes or spaces.'
+  }
+  return null
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const configProblem = findConfigProblem()
+export const isSupabaseConfigured = configProblem === null
+
+// Only the public anon key belongs in the browser. Access control is enforced by
+// Row Level Security in Postgres. NEVER put the service_role key in a VITE_ variable.
+// Placeholder values keep the module from crashing when config is bad; App shows the problem.
+export const supabase = createClient(
+  isSupabaseConfigured ? (rawUrl as string) : 'https://placeholder.supabase.co',
+  isSupabaseConfigured ? (rawKey as string) : 'placeholder-anon-key',
+)
