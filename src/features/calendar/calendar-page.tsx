@@ -1,3 +1,5 @@
+import { ComingSoon } from '@/components/ui/coming-soon'
+
 export function CalendarPage() {
-  return <div className="text-[var(--color-text-primary)]">Calendar — placeholder</div>
+  return <ComingSoon title="Calendar" text="Your posting calendar is coming soon. For now, your posts are on Home." />
 }

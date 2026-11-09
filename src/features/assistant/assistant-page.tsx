@@ -1,3 +1,5 @@
+import { ComingSoon } from '@/components/ui/coming-soon'
+
 export function AssistantPage() {
-  return <div className="text-[var(--color-text-primary)]">AI Assistant — placeholder</div>
+  return <ComingSoon title="Assistant" text="Chatting with Hiba about your ideas is coming soon." />
 }
