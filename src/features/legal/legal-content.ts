@@ -1,0 +1,41 @@
+import { CONTACT_EMAIL, GOVERNING_LAW, OPERATOR } from '@/lib/legal'
+
+export type LegalSection = [heading: string, paragraphs: string[]]
+
+export const PRIVACY: LegalSection[] = [
+  ['1. Who we are', [`Hiba ("Hiba", "we", "us") is an AI-assisted tool that helps professionals turn their ideas into posts for LinkedIn, X and Substack. Hiba is operated by ${OPERATOR}, based in Nigeria, who is responsible for your personal information. This policy explains what personal information we collect, why, and the choices you have.`, `Contact for all privacy questions: ${CONTACT_EMAIL}.`]],
+  ['2. Information we collect', ['Account: your email address and password (stored only as a secure hash by our authentication provider, never in plain text). If you use Google sign-in, we receive your name and email from Google.', 'Profile and onboarding answers: your name, profession, goals, audience, tone, topics, platforms, posting frequency, approval preference, and any writing samples you choose to share.', 'Your content: ideas you type or speak, transcripts, drafts, posts and schedules.', 'Connected accounts: if you connect LinkedIn or X, the access tokens and profile identifiers needed to post on your behalf, and basic performance figures where the platform provides them.', 'Technical data: IP address, browser and device type, and logs used for security and troubleshooting.']],
+  ['3. Voice input', ['This version of Hiba does not store audio recordings. Voice typing uses your browser\'s built-in speech recognition. Depending on your browser (for example Chrome), your audio may be sent to the browser provider\'s speech service to be converted to text, under that provider\'s privacy policy. Only the resulting text reaches Hiba. You can use Hiba without voice by typing instead.']],
+  ['4. How we use your information', ['To create and secure your account; to generate drafts in your voice; to schedule and publish posts only as you approve or configure; to provide support; to keep the service safe and working; to improve Hiba; and to meet legal obligations.', 'We do not sell your personal information. We do not use your content to train AI models ourselves.']],
+  ['5. Service providers we rely on', ['Supabase (hosting, database and authentication); OpenAI (generating drafts from your ideas); Resend (sending verification and password emails); and LinkedIn, X and Substack only when you connect or publish to them. Your content is sent to our AI provider to produce drafts, under its own terms. At the time of writing, content sent through its business API is not used to train its models by default; please review its current policy. Each provider processes data only to deliver its service to us.']],
+  ['6. Legal bases', ['Where laws such as the GDPR or the Nigeria Data Protection Act apply, we process data to perform our agreement with you, with your consent (for example when you connect an account), for our legitimate interests in running a secure service, and to comply with the law.']],
+  ['7. International transfers', ['Your information may be processed in countries other than your own, including the European Union and the United States. We rely on our providers\' contractual safeguards for these transfers.']],
+  ['8. How long we keep it', ['We keep your information while your account is active. When you delete your account we delete your personal data within 30 days, except where the law requires us to keep it, and from backups within 90 days. Connected-account tokens are removed when you disconnect.']],
+  ['9. Your rights', ['You can ask to access, correct, export or delete your information, object to or restrict its use, and withdraw consent at any time. You may also complain to your data protection authority. Email us and we will reply within 30 days.']],
+  ['10. Cookies and browser storage', ['We use essential browser storage to keep you signed in and to keep unsaved drafts on your device. We do not use advertising cookies.']],
+  ['11. Security', ['Data is encrypted in transit, and database rules ensure you can only access your own data. No system is perfectly secure. If a breach affects you we will notify you as the law requires.']],
+  ['12. Children', ['Hiba is for people aged 18 and over. We do not knowingly collect information from children.']],
+  ['13. Changes to this policy', ['If we make important changes we will update the date above and tell you in the app or by email.']],
+  ['14. Contact', [`Questions or requests: ${CONTACT_EMAIL}.`]],
+]
+
+export const TERMS: LegalSection[] = [
+  ['1. Agreement', [`These Terms are an agreement between you and ${OPERATOR} ("Hiba", "we", "us"). By creating an account or using Hiba you agree to these Terms and to our Privacy Policy. If you do not agree, please do not use Hiba.`]],
+  ['2. The service', ['Hiba helps you capture ideas, draft posts with AI, and schedule or publish them to platforms you connect. Features may change as the product develops.']],
+  ['3. Eligibility', ['You must be at least 18 and able to enter a binding agreement.']],
+  ['4. Your account', ['Give accurate information, keep your password secure, and tell us promptly if you suspect unauthorised access. You are responsible for activity on your account.']],
+  ['5. Your content and AI output', ['You own the content you provide. You give us a limited licence to host, process and transmit it only to run Hiba, for example to generate drafts and to publish when you ask.', 'AI-generated drafts can contain mistakes or resemble existing material. You are responsible for reviewing anything before it is published under your name, and for making sure it is accurate and lawful.']],
+  ['6. Connected platforms', ['LinkedIn, X, Substack and similar services have their own terms, which you must follow. You authorise Hiba to post on your behalf only as you approve or configure. Platforms may limit or end access at any time, and we are not responsible for their decisions. You can disconnect an account at any time.']],
+  ['7. Automatic posting', ['If you choose a mode that publishes without per-post approval, you accept that posts will go out on your schedule without a separate review.']],
+  ['8. Acceptable use', ['Do not use Hiba to break the law, infringe others\' rights, harass or deceive people, send spam, spread malware, impersonate others, scrape or overload the service, or bypass security. We may suspend accounts that do.']],
+  ['9. Our intellectual property', ['Hiba\'s software, design and brand belong to us. You may not copy or resell them without permission.']],
+  ['10. Fees', ['Hiba is currently free during early access. If we introduce paid plans we will tell you first and you will not be charged without agreeing.']],
+  ['11. Availability', ['Hiba is provided as is and may be interrupted for maintenance or other reasons. We do our best to keep it running but cannot promise it will always be available.']],
+  ['12. Ending your use', ['You can stop using Hiba and delete your account at any time. We may suspend or end access if you break these Terms or the law. Sections that by their nature should continue will continue after termination.']],
+  ['13. Disclaimers', ['We do not promise any particular result, such as audience growth or engagement, and we do not guarantee that AI output is accurate, original or suitable for your purpose.']],
+  ['14. Limit of liability', ['To the maximum extent the law allows, we are not liable for indirect or consequential loss, and our total liability for any claim is limited to the greater of what you paid us in the previous 12 months or US$50. Nothing here limits liability that cannot be limited by law.']],
+  ['15. Your responsibility', ['You agree to cover losses we suffer because you broke these Terms or posted unlawful content using Hiba.']],
+  ['16. Governing law', [`These Terms are governed by the laws of ${GOVERNING_LAW}, without regard to conflict-of-law rules. Where consumer law gives you the right to use your local courts, that right is not affected.`]],
+  ['17. Changes', ['We may update these Terms. If the changes are important we will tell you in the app or by email, and continued use means you accept them.']],
+  ['18. Contact', [`Questions about these Terms: ${CONTACT_EMAIL}.`]],
+]
