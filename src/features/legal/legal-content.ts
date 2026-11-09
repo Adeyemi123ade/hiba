@@ -1,9 +1,9 @@
-import { CONTACT_EMAIL } from '@/lib/legal'
+import { CONTACT_EMAIL, GOVERNING_LAW, OPERATOR } from '@/lib/legal'
 
 export type LegalSection = [heading: string, paragraphs: string[]]
 
 export const PRIVACY: LegalSection[] = [
-  ['1. Who we are', ['Hiba ("Hiba", "we", "us") is an AI-assisted tool that helps professionals turn their ideas into posts for LinkedIn, X and Substack. This policy explains what personal information we collect, why, and the choices you have.', `Contact for all privacy questions: ${CONTACT_EMAIL}.`]],
+  ['1. Who we are', [`Hiba ("Hiba", "we", "us") is an AI-assisted tool that helps professionals turn their ideas into posts for LinkedIn, X and Substack. Hiba is operated by ${OPERATOR}, based in Nigeria, who is responsible for your personal information. This policy explains what personal information we collect, why, and the choices you have.`, `Contact for all privacy questions: ${CONTACT_EMAIL}.`]],
   ['2. Information we collect', ['Account: your email address and password (stored only as a secure hash by our authentication provider, never in plain text). If you use Google sign-in, we receive your name and email from Google.', 'Profile and onboarding answers: your name, profession, goals, audience, tone, topics, platforms, posting frequency, approval preference, and any writing samples you choose to share.', 'Your content: ideas you type or speak, transcripts, drafts, posts and schedules.', 'Connected accounts: if you connect LinkedIn or X, the access tokens and profile identifiers needed to post on your behalf, and basic performance figures where the platform provides them.', 'Technical data: IP address, browser and device type, and logs used for security and troubleshooting.']],
   ['3. Voice input', ['This version of Hiba does not store audio recordings. Voice typing uses your browser\'s built-in speech recognition. Depending on your browser (for example Chrome), your audio may be sent to the browser provider\'s speech service to be converted to text, under that provider\'s privacy policy. Only the resulting text reaches Hiba. You can use Hiba without voice by typing instead.']],
   ['4. How we use your information', ['To create and secure your account; to generate drafts in your voice; to schedule and publish posts only as you approve or configure; to provide support; to keep the service safe and working; to improve Hiba; and to meet legal obligations.', 'We do not sell your personal information. We do not use your content to train AI models ourselves.']],
@@ -20,7 +20,7 @@ export const PRIVACY: LegalSection[] = [
 ]
 
 export const TERMS: LegalSection[] = [
-  ['1. Agreement', ['By creating an account or using Hiba you agree to these Terms and to our Privacy Policy. If you do not agree, please do not use Hiba.']],
+  ['1. Agreement', [`These Terms are an agreement between you and ${OPERATOR} ("Hiba", "we", "us"). By creating an account or using Hiba you agree to these Terms and to our Privacy Policy. If you do not agree, please do not use Hiba.`]],
   ['2. The service', ['Hiba helps you capture ideas, draft posts with AI, and schedule or publish them to platforms you connect. Features may change as the product develops.']],
   ['3. Eligibility', ['You must be at least 18 and able to enter a binding agreement.']],
   ['4. Your account', ['Give accurate information, keep your password secure, and tell us promptly if you suspect unauthorised access. You are responsible for activity on your account.']],
@@ -35,7 +35,7 @@ export const TERMS: LegalSection[] = [
   ['13. Disclaimers', ['We do not promise any particular result, such as audience growth or engagement, and we do not guarantee that AI output is accurate, original or suitable for your purpose.']],
   ['14. Limit of liability', ['To the maximum extent the law allows, we are not liable for indirect or consequential loss, and our total liability for any claim is limited to the greater of what you paid us in the previous 12 months or US$50. Nothing here limits liability that cannot be limited by law.']],
   ['15. Your responsibility', ['You agree to cover losses we suffer because you broke these Terms or posted unlawful content using Hiba.']],
-  ['16. Governing law', ['These Terms are governed by the laws of the jurisdiction where Hiba\'s operator is established, without regard to conflict-of-law rules. Where consumer law gives you the right to use your local courts, that right is not affected.']],
+  ['16. Governing law', [`These Terms are governed by the laws of ${GOVERNING_LAW}, without regard to conflict-of-law rules. Where consumer law gives you the right to use your local courts, that right is not affected.`]],
   ['17. Changes', ['We may update these Terms. If the changes are important we will tell you in the app or by email, and continued use means you accept them.']],
   ['18. Contact', [`Questions about these Terms: ${CONTACT_EMAIL}.`]],
 ]
