@@ -1,3 +1,5 @@
+import { ComingSoon } from '@/components/ui/coming-soon'
+
 export function LibraryPage() {
-  return <div className="text-[var(--color-text-primary)]">Library — placeholder</div>
+  return <ComingSoon title="Posts" text="A full list of your posts is coming soon. For now, your posts are on Home." />
 }
