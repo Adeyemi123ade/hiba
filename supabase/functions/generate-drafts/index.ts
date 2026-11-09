@@ -176,7 +176,7 @@ Deno.serve(async (req) => {
 
   for (const row of rows) {
     const current = existing?.find((p) => p.platform === row.platform)
-    if (current && current.status !== 'draft') continue
+    if (current && current.status !== 'draft' && current.status !== 'needs_review') continue
     const { error } = current
       ? await db.from('posts').update({ title: row.title, body: row.body }).eq('id', current.id)
       : await db.from('posts').insert({ ...row, user_id: userId, idea_id: ideaId, status: 'draft' })

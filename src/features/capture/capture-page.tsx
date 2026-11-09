@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useBlocker, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, Loader2, Mic, Square } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -9,9 +9,10 @@ import { useOnline } from '@/features/onboarding/use-online'
 import { useSpeechInput } from '@/features/onboarding/use-speech-input'
 import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
+import { StatusBadge } from '@/components/ui/status-badge'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
-  ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, approvePost, cleanIdea, fetchIdea, generateDrafts, saveIdea,
+  AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, cleanIdea, fetchIdea, generateDrafts, saveIdea,
   savePostBody, type ContentErrorCode, type Platform, type Post,
 } from '@/features/content/api/content-service'
 
@@ -66,6 +67,7 @@ export function CapturePage() {
   const [savedText, setSavedText] = useState<string | null>(null)
   const [source, setSource] = useState<'typed' | 'voice'>('typed')
   const [fieldError, setFieldError] = useState<string | null>(null)
+  const [limitNotice, setLimitNotice] = useState<string | null>(null)
   const [error, setError] = useState<ContentErrorCode | null>(null)
   const [slow, setSlow] = useState(false)
   const [posts, setPosts] = useState<Post[]>([])
@@ -74,13 +76,21 @@ export function CapturePage() {
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [approving, setApproving] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // HPD-53: the edit waiting to be saved, so it is never dropped when the person leaves.
+  const pending = useRef<Post | null>(null)
   const loadedIdea = useRef<string | null>(null)
 
   const speech = useSpeechInput(
     useCallback((heard: string) => {
       setSource('voice')
       setFieldError(null)
-      setText((t) => (t.trim() ? `${t.trimEnd()} ${heard.trim()}` : heard.trim()).slice(0, IDEA_MAX))
+      setText((t) => {
+        const joined = t.trim() ? `${t.trimEnd()} ${heard.trim()}` : heard.trim()
+        if (joined.length > IDEA_MAX) {
+          setLimitNotice(`Your idea reached the ${IDEA_MAX} character limit, so the last words you said were not added.`)
+        }
+        return joined.slice(0, IDEA_MAX)
+      })
     }, []),
   )
 
@@ -117,9 +127,28 @@ export function CapturePage() {
     }
   }, [ideaParam, userId])
 
+  // Leaving the page within a second of typing: save the last edit straight away.
   useEffect(() => () => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
+    const last = pending.current
+    if (last) void savePostBody(last.id, last.title, last.body).catch(() => {})
   }, [])
+
+  const unsaved = saveState === 'saving' || saveState === 'failed'
+
+  // Closing or reloading the tab with unsaved edits: the browser asks first.
+  useEffect(() => {
+    if (!unsaved) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [unsaved])
+
+  // Moving to another page in Hiba after a save failed: ask before leaving.
+  const blocker = useBlocker(saveState === 'failed')
 
   async function makePosts() {
     const clean = cleanIdea(text)
@@ -153,7 +182,7 @@ export function CapturePage() {
       const result = await generateDrafts(id)
       const sorted = [...result].sort((a, b) => order(a.platform) - order(b.platform))
       setPosts(sorted)
-      setTab(sorted.find((p) => p.status === 'draft')?.platform ?? sorted[0]?.platform ?? 'linkedin')
+      setTab(sorted.find((p) => AWAITING_REVIEW.includes(p.status))?.platform ?? sorted[0]?.platform ?? 'linkedin')
       setPhase('drafts')
       loadedIdea.current = id
       setParams({ idea: id }, { replace: true })
@@ -168,6 +197,8 @@ export function CapturePage() {
   }
 
   function startOver() {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    flushSave()
     speech.stop()
     clearCaptureDraft(userId)
     setText('')
@@ -177,6 +208,7 @@ export function CapturePage() {
     setPosts([])
     setError(null)
     setFieldError(null)
+    setLimitNotice(null)
     setSaveState('idle')
     setCopied(null)
     loadedIdea.current = null
@@ -192,12 +224,23 @@ export function CapturePage() {
     setPosts((list) => list.map((p) => (p.id === active.id ? next : p)))
     setCopied(null)
     setSaveState('saving')
+    pending.current = next
     if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      savePostBody(next.id, next.title, next.body)
-        .then(() => setSaveState('saved'))
-        .catch(() => setSaveState('failed'))
-    }, 1000)
+    saveTimer.current = setTimeout(flushSave, 1000)
+  }
+
+  function flushSave() {
+    const item = pending.current
+    if (!item) return
+    pending.current = null
+    setSaveState('saving')
+    savePostBody(item.id, item.title, item.body)
+      .then(() => setSaveState((s) => (pending.current ? s : 'saved')))
+      .catch(() => {
+        // Keep the edit so "Try saving again" and leaving the page can still save it.
+        if (!pending.current) pending.current = item
+        setSaveState('failed')
+      })
   }
 
   async function approve() {
@@ -212,6 +255,7 @@ export function CapturePage() {
     try {
       if (saveTimer.current) clearTimeout(saveTimer.current)
       await approvePost(active.id, active.title, active.body)
+      pending.current = null
       setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'approved' } : p)))
       setSaveState('saved')
       queryClient.invalidateQueries({ queryKey: ['home-posts'] })
@@ -252,6 +296,22 @@ export function CapturePage() {
     </Banner>
   )
 
+  const leaveDialog = blocker.state === 'blocked' && (
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+      <div role="alertdialog" aria-modal="true" aria-labelledby="leave-title"
+        className="w-full max-w-sm rounded-[var(--radius-lg)] bg-[var(--color-surface)] p-5 shadow-xl">
+        <h2 id="leave-title" className="text-lg font-semibold text-[var(--color-text-primary)]">Your latest changes are not saved</h2>
+        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+          If you leave now, your most recent edit to this draft may be lost.
+        </p>
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button type="button" className={outlineBtn} onClick={() => blocker.reset?.()}>Stay and try again</button>
+          <button type="button" className={primaryBtn} onClick={() => blocker.proceed?.()}>Leave anyway</button>
+        </div>
+      </div>
+    </div>
+  )
+
   if (phase === 'loading') {
     return (
       <div>
@@ -280,16 +340,20 @@ export function CapturePage() {
 
   if (phase === 'drafts' && active) {
     const count = countLabel(active.platform, active.body)
-    const isApproved = active.status !== 'draft'
-    const anyDraft = posts.some((p) => p.status === 'draft')
+    const isApproved = !AWAITING_REVIEW.includes(active.status)
+    const anyDraft = posts.some((p) => AWAITING_REVIEW.includes(p.status))
     return (
       <div>
         <h1 className="mb-4 text-2xl font-bold text-[var(--color-text-primary)]">Your drafts</h1>
+        {leaveDialog}
         {errorBanner}
         <Card>
           <p className="mb-3 text-sm text-[var(--color-text-secondary)]">
             <span className="font-semibold text-[var(--color-text-primary)]">Your idea: </span>
             {text}
+          </p>
+          <p className="mb-3 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+            Status: <StatusBadge status={active.status} />
           </p>
           <div role="tablist" aria-label="Platforms" className="mb-3 flex flex-wrap gap-2">
             {posts.map((p) => (
@@ -310,7 +374,7 @@ export function CapturePage() {
                     : 'border-[var(--color-border)] text-[var(--color-text-primary)]',
                 )}
               >
-                {p.status !== 'draft' && <Check size={14} aria-label="Approved" />}
+                {!AWAITING_REVIEW.includes(p.status) && <Check size={14} aria-label={STATUS_LABELS[p.status]} />}
                 {PLATFORMS.find((x) => x.id === p.platform)?.name}
               </button>
             ))}
@@ -345,7 +409,12 @@ export function CapturePage() {
             <span aria-live="polite">
               {saveState === 'saving' && 'Saving...'}
               {saveState === 'saved' && 'All changes saved'}
-              {saveState === 'failed' && <span className="text-[var(--color-error)]">Changes not saved. Keep this page open and check your connection.</span>}
+              {saveState === 'failed' && (
+                <span className="text-[var(--color-error)]">
+                  Changes not saved. Check your connection.{' '}
+                  <button type="button" className="font-semibold underline" onClick={flushSave}>Try saving again</button>
+                </span>
+              )}
             </span>
           </div>
           {count.warning && <p className="mt-1 text-sm text-[var(--color-error)]">{count.warning}</p>}
@@ -353,8 +422,15 @@ export function CapturePage() {
 
           {isApproved ? (
             <div className="mt-4 rounded-[var(--radius-md)] bg-[var(--color-primary-soft)] p-4" role="status">
-              <p className="font-semibold text-[var(--color-primary-dark)]">Approved.</p>
-              <p className="mt-1 text-sm text-[var(--color-text-primary)]">{NEXT_STEP[active.platform]}</p>
+              <p className="font-semibold text-[var(--color-primary-dark)]">{STATUS_LABELS[active.status]}.</p>
+              {active.status === 'approved' && (
+                <p className="mt-1 text-sm text-[var(--color-text-primary)]">{NEXT_STEP[active.platform]}</p>
+              )}
+              {active.status === 'failed' && (
+                <p className="mt-1 text-sm text-[var(--color-error)]">
+                  {active.failure_reason || 'Publishing did not work. Copy the post and share it yourself, or try again later.'}
+                </p>
+              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" className={primaryBtn} onClick={copyActive}>
                   <Copy size={16} aria-hidden="true" /> Copy
@@ -462,6 +538,17 @@ export function CapturePage() {
           onChange={(e) => {
             setText(e.target.value)
             setFieldError(null)
+            if (e.target.value.length < IDEA_MAX) setLimitNotice(null)
+          }}
+          onPaste={(e) => {
+            const pasted = e.clipboardData.getData('text')
+            const el = e.currentTarget
+            const total = text.length - (el.selectionEnd - el.selectionStart) + pasted.length
+            if (total > IDEA_MAX) {
+              setLimitNotice(
+                `What you pasted made your idea ${total} characters long. Only ${IDEA_MAX} fit, so the end was cut off. Please check the last part.`,
+              )
+            }
           }}
           aria-invalid={Boolean(fieldError)}
           aria-describedby={fieldError ? 'idea-error idea-count' : 'idea-count'}
@@ -481,6 +568,11 @@ export function CapturePage() {
             {remaining} characters left
           </span>
         </div>
+        {limitNotice && (
+          <p role="status" className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {limitNotice}
+          </p>
+        )}
         <div className="mt-4 flex flex-wrap justify-between gap-2">
           <button type="button" className={outlineBtn} onClick={startOver} disabled={!text && !ideaId}>
             Clear

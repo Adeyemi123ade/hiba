@@ -12,6 +12,7 @@ import { DashboardHomePage } from '@/features/dashboard/dashboard-home-page'
 import { CapturePage } from '@/features/capture/capture-page'
 import { CalendarPage } from '@/features/calendar/calendar-page'
 import { LibraryPage } from '@/features/library/library-page'
+import { ImagesPage } from '@/features/images/images-page'
 import { AssistantPage } from '@/features/assistant/assistant-page'
 import { SettingsPage } from '@/features/settings/settings-page'
 
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
               { path: 'capture', element: <CapturePage /> },
               { path: 'calendar', element: <CalendarPage /> },
               { path: 'library', element: <LibraryPage /> },
+              { path: 'images', element: <ImagesPage /> },
               { path: 'assistant', element: <AssistantPage /> },
               { path: 'settings/*', element: <SettingsPage /> },
             ],

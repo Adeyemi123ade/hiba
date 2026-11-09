@@ -6,7 +6,10 @@ import { useProfile } from '@/features/onboarding/use-profile'
 import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
 import { loadCaptureDraft } from '@/features/capture/capture-draft'
-import { ContentError, PLATFORMS, fetchHomePosts, type Post } from '@/features/content/api/content-service'
+import {
+  AWAITING_REVIEW, ContentError, PLATFORMS, fetchHomePosts, type Post,
+} from '@/features/content/api/content-service'
+import { StatusBadge } from '@/components/ui/status-badge'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { SAMPLE_GROWTH } from '@/features/dashboard/sample-data'
 
@@ -35,7 +38,13 @@ function IdeaRow({ ideaId, posts, action }: { ideaId: string; posts: Post[]; act
     <li className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-border)] py-3 first:border-t-0">
       <div className="min-w-0">
         <p className="truncate font-semibold text-[var(--color-text-primary)]">{headline(posts)}</p>
-        <p className="text-sm text-[var(--color-text-secondary)]">{posts.map((p) => platformName(p.platform)).join(', ')}</p>
+        <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)]">
+          {posts.map((p) => (
+            <li key={p.id} className="inline-flex items-center gap-1.5">
+              {platformName(p.platform)} <StatusBadge status={p.status} />
+            </li>
+          ))}
+        </ul>
       </div>
       <Link
         to={`/dashboard/capture?idea=${ideaId}`}
@@ -57,8 +66,11 @@ export function DashboardHomePage() {
 
   const name = profile?.preferred_name?.trim()
   const all = posts.data ?? []
-  const waiting = groupByIdea(all.filter((p) => p.status === 'draft'))
+  const waiting = groupByIdea(all.filter((p) => AWAITING_REVIEW.includes(p.status)))
+  const readyCount = all.filter((p) => p.status === 'approved').length
   const approved = groupByIdea(all.filter((p) => p.status === 'approved'))
+  // HPD-41: the five most recently changed ideas, whatever their status (newest first from the query).
+  const recent = groupByIdea(all).slice(0, 5)
   const weekAhead = Date.now() + 7 * 24 * 60 * 60 * 1000
   const upcoming = all.filter(
     (p) => p.status === 'scheduled' && p.scheduled_for && new Date(p.scheduled_for).getTime() <= weekAhead,
@@ -156,12 +168,23 @@ export function DashboardHomePage() {
 
           {approved.length > 0 && (
             <Card>
-              <h2 className="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">Approved and ready</h2>
+              <h2 className="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">
+                Ready to publish ({readyCount} {readyCount === 1 ? 'post' : 'posts'})
+              </h2>
               <p className="mb-2 text-sm text-[var(--color-text-secondary)]">
                 Copy these and post them yourself until you connect your accounts.
               </p>
               <ul>
                 {approved.map(([id, list]) => <IdeaRow key={id} ideaId={id} posts={list} action="Open" />)}
+              </ul>
+            </Card>
+          )}
+
+          {recent.length > 0 && (
+            <Card>
+              <h2 className="mb-2 text-lg font-semibold text-[var(--color-text-primary)]">Recent posts</h2>
+              <ul>
+                {recent.map(([id, list]) => <IdeaRow key={id} ideaId={id} posts={list} action="Open" />)}
               </ul>
             </Card>
           )}
