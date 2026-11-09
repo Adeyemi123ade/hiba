@@ -2,7 +2,22 @@ import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 export type Platform = 'linkedin' | 'x' | 'substack'
-export type PostStatus = 'draft' | 'approved' | 'scheduled' | 'published' | 'failed'
+export type PostStatus =
+  | 'draft' | 'needs_review' | 'approved' | 'scheduled' | 'published' | 'failed' | 'archived'
+
+/** HPD-54: what each status is called on screen. */
+export const STATUS_LABELS: Record<PostStatus, string> = {
+  draft: 'Draft',
+  needs_review: 'Needs review',
+  approved: 'Approved',
+  scheduled: 'Scheduled',
+  published: 'Published',
+  failed: 'Failed',
+  archived: 'Archived',
+}
+
+/** Statuses that still need the person to look at them before anything else happens. */
+export const AWAITING_REVIEW: PostStatus[] = ['draft', 'needs_review']
 
 export interface Post {
   id: string
@@ -12,6 +27,7 @@ export interface Post {
   body: string
   status: PostStatus
   scheduled_for: string | null
+  failure_reason?: string | null
   updated_at: string
 }
 
@@ -29,7 +45,7 @@ export const PLATFORMS: { id: Platform; name: string; limit: number }[] = [
   { id: 'substack', name: 'Substack', limit: 20000 },
 ]
 
-const POST_COLUMNS = 'id, idea_id, platform, title, body, status, scheduled_for, updated_at'
+const POST_COLUMNS = 'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, updated_at'
 
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
@@ -106,12 +122,12 @@ export async function fetchIdea(ideaId: string): Promise<IdeaWithPosts> {
   return data as unknown as IdeaWithPosts
 }
 
-/** Posts for the Home screen: drafts waiting for the user, and anything approved or scheduled. */
+/** Posts for the Home screen: everything except archived, newest first. */
 export async function fetchHomePosts(): Promise<Post[]> {
   const { data, error } = await supabase
     .from('posts')
     .select(POST_COLUMNS)
-    .in('status', ['draft', 'approved', 'scheduled'])
+    .neq('status', 'archived')
     .order('updated_at', { ascending: false })
     .limit(50)
   if (error) throw toContentError(error)

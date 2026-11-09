@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { CalendarDays, FileText, Home, LogOut, Mic, Settings } from 'lucide-react'
+import { CalendarDays, FileText, Home, Images, LogOut, Mic, Settings } from 'lucide-react'
 import { clsx } from 'clsx'
 import { signOutUser } from '@/features/auth/api/auth-service'
 import { useOnline } from '@/features/onboarding/use-online'
@@ -10,6 +10,7 @@ const NAV = [
   { to: '/dashboard/home', label: 'Home', icon: Home },
   { to: '/dashboard/capture', label: 'Capture', icon: Mic },
   { to: '/dashboard/library', label: 'Posts', icon: FileText },
+  { to: '/dashboard/images', label: 'Images', icon: Images },
   { to: '/dashboard/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/dashboard/settings', label: 'Settings', icon: Settings },
 ]
