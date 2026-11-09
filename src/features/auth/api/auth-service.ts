@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { TERMS_VERSION } from '@/lib/legal'
 
 /**
  * Auth flows — per "Authentication Flow Clarification" (this project's auth spec).
@@ -11,8 +12,20 @@ import { supabase } from '@/lib/supabase'
  */
 
 export async function registerWithEmail(email: string, password: string) {
-  const { data, error } = await supabase.auth.signUp({ email, password })
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { terms_version: TERMS_VERSION } },
+  })
   if (error) throw error
+  // A session straight after sign-up means the server skipped email verification
+  // (Supabase "Confirm email" is off). Never let an unverified address through.
+  if (data.session) {
+    await supabase.auth.signOut()
+    throw new Error(
+      'Email verification is switched off on the server, so sign-up was stopped. Turn on "Confirm email" in Supabase Auth settings.',
+    )
+  }
   return data
 }
 
@@ -29,6 +42,27 @@ export async function verifyRegistrationOtp(email: string, token: string) {
 export async function resendRegistrationOtp(email: string) {
   const { error } = await supabase.auth.resend({ type: 'signup', email })
   if (error) throw error
+}
+
+export async function requestPasswordReset(email: string) {
+  // Always succeeds for unknown emails too, so account existence is never revealed.
+  const { error } = await supabase.auth.resetPasswordForEmail(email)
+  if (error) throw error
+}
+
+export async function verifyRecoveryCode(email: string, token: string) {
+  const { data, error } = await supabase.auth.verifyOtp({ email, token, type: 'recovery' })
+  if (error) throw error
+  return data
+}
+
+export async function setNewPassword(password: string) {
+  const { error } = await supabase.auth.updateUser({ password })
+  if (error) throw error
+}
+
+export async function signOutUser() {
+  await supabase.auth.signOut()
 }
 
 export async function signInWithPassword(email: string, password: string) {
