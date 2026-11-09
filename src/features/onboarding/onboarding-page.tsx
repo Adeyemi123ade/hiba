@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, ArrowRight, BadgeCheck, Check, Link2, Loader2, Settings, ShieldCheck, Sparkles, Target, FileText, Heart,
+  ArrowLeft, ArrowRight, BadgeCheck, Check, Link2, Loader2, Pencil, Settings, ShieldCheck, Sparkles, Target, FileText, Heart,
 } from 'lucide-react'
 import clsx from 'clsx'
 import { useSession } from '@/features/auth/use-session'
@@ -13,9 +13,11 @@ import { TermsCheckbox } from '@/features/legal/terms-checkbox'
 import { acceptTerms, saveOnboarding } from '@/features/onboarding/api/onboarding-service'
 import { StepInput } from '@/features/onboarding/components/step-input'
 import { ICONS } from '@/features/onboarding/icons'
-import { STEPS, isAnswered, sanitizeText, validateStep, type Answers } from '@/features/onboarding/steps'
+import {
+  STEPS, defaultPrefs, formatAnswer, isAnswered, normalizeAnswers, sanitizeText, validateStep, writePrefs, type Answers,
+} from '@/features/onboarding/steps'
 
-type Phase = 'welcome' | 'steps' | 'building' | 'done'
+type Phase = 'welcome' | 'steps' | 'summary' | 'building' | 'done'
 
 const primaryBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-md)] bg-[var(--color-primary-dark)] px-6 py-3 text-base font-semibold text-white transition-colors hover:bg-[#126a32] disabled:opacity-60'
@@ -48,6 +50,7 @@ export function OnboardingPage() {
   const [slow, setSlow] = useState(false)
   const [sessionExpired, setSessionExpired] = useState(false)
   const [agreed, setAgreed] = useState(false)
+  const [editingFromSummary, setEditingFromSummary] = useState(false)
   const [termsError, setTermsError] = useState<string | null>(null)
   const online = useOnline()
   const draftKey = userId ? `hiba:onboarding-draft:${userId}` : null
@@ -67,9 +70,15 @@ export function OnboardingPage() {
       }
     }
     if (Object.keys(saved).length === 0) return
+    saved = normalizeAnswers(saved)
     setAnswers(saved)
+    // Resume at the next unanswered required question, or at the summary when all are done.
     const firstOpen = STEPS.findIndex((s) => s.required && !isAnswered(saved[s.id]))
-    setIndex(firstOpen === -1 ? 0 : firstOpen)
+    if (firstOpen === -1) {
+      setPhase('summary')
+      return
+    }
+    setIndex(firstOpen)
     setPhase('steps')
   }, [profile, resumed, draftKey])
 
@@ -114,7 +123,8 @@ export function OnboardingPage() {
 
   const step = STEPS[index]
   const isLast = index === STEPS.length - 1
-  const value = answers[step.id] ?? (step.kind === 'multi' ? [] : '')
+  const fallback = step.kind === 'multi' ? [] : step.kind === 'prefs' ? writePrefs(defaultPrefs()) : ''
+  const value = answers[step.id] ?? fallback
   const StepIcon = ICONS[step.icon] ?? Sparkles
 
   async function enterWorkspace() {
@@ -178,7 +188,7 @@ export function OnboardingPage() {
       setError('You are offline. Your answers are kept on this page. Reconnect, then press Continue again.')
       return
     }
-    const raw = answers[step.id]
+    const raw = answers[step.id] ?? (step.kind === 'prefs' ? writePrefs(defaultPrefs()) : undefined)
     const clean =
       typeof raw === 'string'
         ? sanitizeText(raw, step.kind === 'longtext')
@@ -198,7 +208,7 @@ export function OnboardingPage() {
     try {
       await saveOnboarding(userId, merged, false)
       setAnswers(merged)
-      if (isLast) setPhase('building')
+      if (isLast || editingFromSummary) openSummary()
       else setIndex(index + 1)
     } catch (err) {
       console.error('Onboarding save failed', err)
@@ -223,15 +233,39 @@ export function OnboardingPage() {
     }
   }
 
+  function openSummary() {
+    setEditingFromSummary(false)
+    setError(null)
+    setPhase('summary')
+  }
+
+  function editFromSummary(stepIndex: number) {
+    setEditingFromSummary(true)
+    setError(null)
+    setIndex(stepIndex)
+    setPhase('steps')
+  }
+
+  function finishFromSummary() {
+    const missing = STEPS.findIndex((s) => s.required && !isAnswered(answers[s.id]))
+    if (missing !== -1) {
+      editFromSummary(missing)
+      setError('Please answer this question before you finish.')
+      return
+    }
+    setPhase('building')
+  }
+
   function skipStep() {
     setError(null)
-    if (isLast) setPhase('building')
+    if (isLast || editingFromSummary) openSummary()
     else setIndex(index + 1)
   }
 
   function goBack() {
     setError(null)
-    if (index === 0) setPhase('welcome')
+    if (editingFromSummary) openSummary()
+    else if (index === 0) setPhase('welcome')
     else setIndex(index - 1)
   }
 
@@ -360,7 +394,9 @@ export function OnboardingPage() {
                 </button>
               )}
               <button type="submit" disabled={saving} className={clsx(primaryBtn, 'flex-1')}>
-                {saving ? (slow ? 'Still saving... slow connection' : 'Saving...') : isLast ? 'Finish' : 'Continue'}
+                {saving
+                  ? slow ? 'Still saving... slow connection' : 'Saving...'
+                  : editingFromSummary ? 'Save and review' : isLast ? 'Review my answers' : 'Continue'}
                 {!saving && <ArrowRight size={18} aria-hidden="true" />}
               </button>
             </div>
@@ -370,6 +406,44 @@ export function OnboardingPage() {
               </button>
             )}
           </form>
+        )}
+
+        {phase === 'summary' && (
+          <section className="rounded-[var(--radius-xl)] sm:border sm:border-[var(--color-border)] sm:bg-[var(--color-surface)] sm:p-8">
+            <div className="flex flex-col items-center text-center">
+              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary-dark)]"><BadgeCheck size={30} aria-hidden="true" /></span>
+              <h1 className="mt-5 text-2xl font-bold text-[var(--color-ink)] sm:text-3xl">Check your answers</h1>
+              <p className="mt-2 text-sm text-[var(--color-text-secondary)]">This is how Hiba will write and plan for you. Change anything before you finish.</p>
+            </div>
+            <dl className="mt-6 divide-y divide-[var(--color-border)]">
+              {STEPS.map((s, i) => (
+                <div key={s.id} className="flex items-start justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <dt className="text-sm font-semibold text-[var(--color-ink)]">{s.label}</dt>
+                    <dd className={clsx('mt-0.5 break-words text-sm', isAnswered(answers[s.id]) || s.kind === 'prefs'
+                      ? 'text-[var(--color-text-secondary)]' : s.required ? 'text-[var(--color-error)]' : 'italic text-[var(--color-text-secondary)]')}>
+                      {s.kind === 'longtext' && typeof answers[s.id] === 'string' && (answers[s.id] as string).length > 160
+                        ? `${(answers[s.id] as string).slice(0, 157)}...`
+                        : formatAnswer(s, answers[s.id])}
+                    </dd>
+                  </div>
+                  <button type="button" onClick={() => editFromSummary(i)} aria-label={`Edit ${s.label}`}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-sm font-medium text-[var(--color-primary-dark)] hover:bg-[var(--color-bg-light-green)]">
+                    <Pencil size={14} aria-hidden="true" />Edit
+                  </button>
+                </div>
+              ))}
+            </dl>
+            {error && <p role="alert" className="mt-4 text-sm text-[var(--color-error)]">{error}</p>}
+            <div className="mt-6 flex items-center gap-3">
+              <button type="button" className={outlineBtn} onClick={() => editFromSummary(STEPS.length - 1)}>
+                <ArrowLeft size={18} aria-hidden="true" />Back
+              </button>
+              <button type="button" className={clsx(primaryBtn, 'flex-1')} onClick={finishFromSummary} disabled={!online}>
+                Looks good, build my workspace <ArrowRight size={18} aria-hidden="true" />
+              </button>
+            </div>
+          </section>
         )}
 
         {phase === 'building' && (

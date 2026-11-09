@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
 import { Check, ClipboardPaste, Lock, Mic, Plus, Square, X } from 'lucide-react'
 import clsx from 'clsx'
-import { CUSTOM_MAX, sanitizeText, type OnboardingStep, type StepOption } from '@/features/onboarding/steps'
+import {
+  CUSTOM_MAX, labelFor, readPrefs, sanitizeText, writePrefs, type OnboardingStep, type StepOption, type WorkingPrefs,
+} from '@/features/onboarding/steps'
 import { useSpeechInput } from '@/features/onboarding/use-speech-input'
 import { ICONS } from '@/features/onboarding/icons'
 
@@ -13,6 +15,9 @@ interface StepInputProps {
 }
 
 export function StepInput({ step, value, onChange, onSubmit }: StepInputProps) {
+  if (step.kind === 'prefs') {
+    return <PrefsEditor value={value} onChange={onChange} />
+  }
   if (step.kind === 'multi' || step.kind === 'single') {
     return <ChipPicker step={step} value={value} onChange={onChange} />
   }
@@ -74,10 +79,10 @@ function ChipPicker({ step, value, onChange }: Omit<StepInputProps, 'onSubmit'>)
       {customItems.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {customItems.map((c) => (
-            <button key={c} type="button" aria-pressed="true" aria-label={`Remove ${c}`}
+            <button key={c} type="button" aria-pressed="true" aria-label={`Remove ${labelFor(step, c)}`}
               onClick={() => onChange(selected.filter((s) => s !== c))}
               className={clsx(chip(true), 'inline-flex items-center gap-1')}>
-              {c}
+              {labelFor(step, c)}
               <X size={14} aria-hidden="true" />
             </button>
           ))}
@@ -298,6 +303,69 @@ function TextEntry({ step, value, onChange, onSubmit }: Omit<StepInputProps, 'va
             </button>
           )}
         </span>
+      </div>
+    </div>
+  )
+}
+
+function Switch({ id, label, hint, checked, onChange }: {
+  id: string; label: string; hint: string; checked: boolean; onChange: (on: boolean) => void
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+      <span>
+        <label htmlFor={id} className="block cursor-pointer text-sm font-semibold text-[var(--color-ink)]">{label}</label>
+        <span id={`${id}-hint`} className="block text-xs text-[var(--color-text-secondary)]">{hint}</span>
+      </span>
+      <button
+        id={id}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-describedby={`${id}-hint`}
+        onClick={() => onChange(!checked)}
+        className={clsx(
+          'relative mt-1 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
+          checked ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-border)]',
+        )}
+      >
+        <span className={clsx('inline-block h-5 w-5 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-5' : 'translate-x-0.5')} />
+        <span className="sr-only">{checked ? 'On' : 'Off'}</span>
+      </button>
+    </div>
+  )
+}
+
+/** HPD-37: automatic drafts, suggested times, and the creator's preferred posting time (the clock). */
+function PrefsEditor({ value, onChange }: { value: string | string[]; onChange: (value: string[]) => void }) {
+  const prefs = readPrefs(Array.isArray(value) ? value : undefined)
+  const set = (change: Partial<WorkingPrefs>) => onChange(writePrefs({ ...prefs, ...change }))
+
+  return (
+    <div className="flex flex-col gap-3">
+      <Switch id="pref-auto-draft" label="Create drafts automatically" checked={prefs.autoDraft}
+        hint="When you capture an idea, Hiba starts writing drafts straight away."
+        onChange={(on) => set({ autoDraft: on })} />
+      <Switch id="pref-best-times" label="Suggest the best times to post" checked={prefs.bestTimes}
+        hint="Hiba recommends posting times. You always pick the final time."
+        onChange={(on) => set({ bestTimes: on })} />
+      <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3">
+        <label htmlFor="pref-time" className="block text-sm font-semibold text-[var(--color-ink)]">
+          Your preferred posting time
+        </label>
+        <span id="pref-time-hint" className="block text-xs text-[var(--color-text-secondary)]">
+          Scheduled posts go out at this time unless you choose another. Your time zone: {prefs.timezone}.
+        </span>
+        <input
+          id="pref-time"
+          type="time"
+          step={300}
+          required
+          value={prefs.postingTime}
+          aria-describedby="pref-time-hint"
+          onChange={(e) => set({ postingTime: e.target.value })}
+          className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] px-3 py-2 text-lg text-[var(--color-text-primary)]"
+        />
       </div>
     </div>
   )

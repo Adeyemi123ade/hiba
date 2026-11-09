@@ -1,5 +1,5 @@
 import {
-  BadgeCheck, BookOpen, Briefcase, Building2, CalendarDays, Eye, GraduationCap, Globe, Heart,
+  BadgeCheck, BookOpen, Briefcase, Building2, CalendarDays, Clock, Eye, GraduationCap, Globe, Heart,
   Lightbulb, Link2, Megaphone, MessageCircle, MessageSquare, Network, Palette, PenLine, Rocket,
   ShieldCheck, SlidersHorizontal, Smile, Sparkles, Star, Target, TrendingUp, User, UserPlus,
   Users, Zap, type LucideIcon,
@@ -12,5 +12,5 @@ export const ICONS: Record<string, LucideIcon> = {
   sparkles: Sparkles, check: BadgeCheck, shield: ShieldCheck, network: Network, 'user-plus': UserPlus,
   book: BookOpen, trending: TrendingUp, eye: Eye, heart: Heart, rocket: Rocket, palette: Palette,
   cap: GraduationCap, megaphone: Megaphone, building: Building2, globe: Globe, smile: Smile,
-  zap: Zap, lightbulb: Lightbulb, star: Star,
+  zap: Zap, lightbulb: Lightbulb, star: Star, clock: Clock,
 }
