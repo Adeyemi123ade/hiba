@@ -85,10 +85,23 @@ export async function saveIdea(body: string, source: 'typed' | 'voice'): Promise
   return data.id as string
 }
 
-export async function generateDrafts(ideaId: string): Promise<Post[]> {
-  const { data, error } = await supabase.functions.invoke<{ posts: Post[] }>('generate-drafts', {
-    body: { ideaId },
-  })
+export const GUIDANCE_MAX = 300
+
+/**
+ * Writes drafts for an idea. With `platform`, only that draft is rewritten (HPD-50),
+ * optionally following the person's guidance. Earlier text is kept as a version.
+ */
+export async function generateDrafts(
+  ideaId: string,
+  rewrite?: { platform: Platform; guidance?: string },
+): Promise<Post[]> {
+  const body: Record<string, string> = { ideaId }
+  if (rewrite) {
+    body.platform = rewrite.platform
+    const guidance = rewrite.guidance ? cleanIdea(rewrite.guidance).slice(0, GUIDANCE_MAX) : ''
+    if (guidance) body.guidance = guidance
+  }
+  const { data, error } = await supabase.functions.invoke<{ posts: Post[] }>('generate-drafts', { body })
   if (error) {
     if (error instanceof FunctionsHttpError) {
       const res = error.context as Response
@@ -153,4 +166,41 @@ export const ERROR_TEXT: Record<ContentErrorCode, string> = {
   not_configured: 'Drafting is not switched on yet. Your idea is saved. Try again once it is set up.',
   ai_failed: 'We could not write your posts just now. Your idea is saved. Please try again.',
   unknown: 'Something went wrong. Your idea is kept on this page. Please try again.',
+}
+
+export interface PostVersion {
+  id: string
+  post_id: string
+  title: string | null
+  body: string
+  source: 'ai' | 'edit'
+  guidance: string | null
+  created_at: string
+}
+
+/** Every saved version of a post, newest first (HPD-50). */
+export async function fetchVersions(postId: string): Promise<PostVersion[]> {
+  const { data, error } = await supabase
+    .from('post_versions')
+    .select('id, post_id, title, body, source, guidance, created_at')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: false })
+    .limit(30)
+  if (error) throw toContentError(error)
+  return (data ?? []) as PostVersion[]
+}
+
+/**
+ * Makes an earlier version the current text. If the current text is not already saved as a
+ * version (for example the person edited it), it is saved first, so switching never loses work.
+ */
+export async function restoreVersion(post: Post, version: PostVersion, versions: PostVersion[]): Promise<void> {
+  const alreadyKept = versions.some((v) => v.body === post.body && (v.title ?? null) === (post.title ?? null))
+  if (post.body.trim() && !alreadyKept) {
+    const { error } = await supabase
+      .from('post_versions')
+      .insert({ post_id: post.id, title: post.title, body: post.body, source: 'edit' })
+    if (error) throw toContentError(error)
+  }
+  await savePostBody(post.id, version.title, version.body)
 }

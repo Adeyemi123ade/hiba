@@ -10,10 +10,11 @@ import { useSpeechInput } from '@/features/onboarding/use-speech-input'
 import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
   AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, cleanIdea, fetchIdea, generateDrafts, saveIdea,
-  savePostBody, type ContentErrorCode, type Platform, type Post,
+  restoreVersion, savePostBody, type ContentErrorCode, type Platform, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
 
 type Phase = 'loading' | 'write' | 'working' | 'drafts'
@@ -266,6 +267,45 @@ export function CapturePage() {
     }
   }
 
+  /** Saves a waiting edit now (throws if it cannot), so a rewrite or version switch starts from it. */
+  async function saveNow() {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    const item = pending.current
+    if (!item) return
+    pending.current = null
+    try {
+      await savePostBody(item.id, item.title, item.body)
+      setSaveState('saved')
+    } catch (e) {
+      pending.current = item
+      setSaveState('failed')
+      throw e
+    }
+  }
+
+  // HPD-50: new version of the open draft, optionally guided. The function keeps the old text.
+  async function rewriteActive(guidance: string) {
+    if (!active || !ideaId) return
+    await saveNow()
+    const result = await generateDrafts(ideaId, { platform: active.platform, guidance })
+    setPosts([...result].sort((a, b) => order(a.platform) - order(b.platform)))
+    setSaveState('idle')
+    setCopied(null)
+    queryClient.invalidateQueries({ queryKey: ['versions', active.id] })
+    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+  }
+
+  async function switchVersion(version: PostVersion, all: PostVersion[]) {
+    if (!active) return
+    await saveNow()
+    const current = posts.find((p) => p.id === active.id) ?? active
+    await restoreVersion(current, version, all)
+    setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, title: version.title, body: version.body } : p)))
+    setSaveState('saved')
+    setCopied(null)
+    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+  }
+
   async function copyActive() {
     if (!active) return
     const content = active.title ? `${active.title}\n\n${active.body}` : active.body
@@ -444,9 +484,12 @@ export function CapturePage() {
             </div>
           ) : (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <button type="button" className={outlineBtn} onClick={makePosts} disabled={!online}>
-                Write it again
-              </button>
+              <RewriteBox
+                key={active.id}
+                platformName={PLATFORMS.find((x) => x.id === active.platform)?.name ?? 'draft'}
+                online={online}
+                onRewrite={rewriteActive}
+              />
               <div className="flex flex-wrap gap-2">
                 <button type="button" className={outlineBtn} onClick={copyActive}>
                   <Copy size={16} aria-hidden="true" /> Copy
@@ -463,6 +506,7 @@ export function CapturePage() {
               Your browser blocked copying. Select the text above and copy it yourself.
             </p>
           )}
+          <VersionHistory post={active} readOnly={isApproved} onUse={switchVersion} />
         </Card>
 
         <div className="flex flex-wrap gap-2">
