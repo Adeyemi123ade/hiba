@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { validatePassword } from '@/lib/password'
 import {
   requestPasswordReset,
@@ -10,7 +9,8 @@ import {
 import { friendlyAuthError } from '@/features/auth/api/auth-errors'
 import { useCooldown } from '@/features/auth/use-cooldown'
 import { PasswordField } from '@/features/auth/components/password-field'
-import { PasswordRequirements } from '@/features/auth/components/password-requirements'
+import { PasswordHint } from '@/features/auth/components/password-hint'
+import { authInput, authLabel, authPrimary } from '@/features/auth/components/auth-ui'
 
 interface ResetPasswordFormProps {
   email: string
@@ -74,26 +74,26 @@ export function ResetPasswordForm({ email, onDone, onChangeEmail, onBackToSignIn
   }
 
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
+    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
       <p className="text-sm text-[var(--color-text-secondary)]">
         If an account exists for <span className="font-medium text-[var(--color-text-primary)]">{email}</span>, we sent it a 6-digit code.
       </p>
       {!codeAccepted && (
         <div className="flex flex-col gap-1">
-          <label htmlFor="reset-code" className="text-sm text-[var(--color-text-primary)]">Reset code</label>
+          <label htmlFor="reset-code" className={authLabel}>Reset code</label>
           <input id="reset-code" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
             value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-            className="rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 text-lg tracking-[0.4em]" />
+            className={`${authInput} text-center text-xl tracking-[0.4em]`} />
         </div>
       )}
       <PasswordField id="new-password" label="New password" value={password} onChange={setPassword}
         autoComplete="new-password" describedBy="new-password-rules" />
-      <PasswordRequirements id="new-password-rules" password={password} />
+      <PasswordHint id="new-password-rules" password={password} />
       <PasswordField id="confirm-new-password" label="Confirm new password" value={confirm}
         onChange={setConfirm} autoComplete="new-password" />
       {error && <p role="alert" className="text-sm text-[var(--color-error)]">{error}</p>}
       {info && <p role="status" className="text-sm text-[var(--color-success)]">{info}</p>}
-      <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Reset password'}</Button>
+      <button type="submit" className={authPrimary} disabled={isSubmitting}>{isSubmitting ? 'Saving...' : 'Reset password'}</button>
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-[var(--color-border)] pt-4 text-sm">
         <button type="button" onClick={handleResend} disabled={isResending || cooldown.left > 0}
           className={`${linkClass} disabled:text-[var(--color-text-secondary)] disabled:no-underline`}>

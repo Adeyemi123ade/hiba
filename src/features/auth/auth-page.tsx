@@ -7,6 +7,7 @@ import { ForgotPasswordForm } from '@/features/auth/components/forgot-password-f
 import { ResetPasswordForm } from '@/features/auth/components/reset-password-form'
 import { GoogleSignInButton } from '@/features/auth/components/google-signin-button'
 import { resendRegistrationOtp } from '@/features/auth/api/auth-service'
+import { authLink } from '@/features/auth/components/auth-ui'
 
 type Mode = 'register' | 'login' | 'otp' | 'forgot' | 'reset'
 
@@ -18,7 +19,6 @@ const HEADINGS: Record<Mode, string> = {
   reset: 'Choose a new password',
 }
 
-const linkClass = 'text-sm text-[var(--color-primary-dark)] hover:underline'
 
 /**
  * Register -> verify email (OTP) -> onboarding -> dashboard.
@@ -40,13 +40,14 @@ export function AuthPage() {
   const showSocial = mode === 'register' || mode === 'login'
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-5 bg-[var(--color-bg-cream)] px-4 py-8">
+    <div className="flex min-h-screen justify-center bg-white px-4 py-10 sm:items-center">
+     <div className="flex w-full max-w-md flex-col items-stretch gap-6">
       <title>{HEADINGS[mode]} · Hiba</title>
       <meta name="robots" content="noindex" />
-      <h1 className="text-2xl font-semibold text-[var(--color-text-primary)]">{HEADINGS[mode]}</h1>
+      <h1 className="text-center text-3xl font-bold text-[var(--color-text-primary)] sm:text-4xl">{HEADINGS[mode]}</h1>
 
       {notice && (
-        <p role="status" className="w-full max-w-sm rounded-[var(--radius-sm)] bg-[var(--color-primary-soft)] px-3 py-2 text-sm text-[var(--color-primary-dark)]">
+        <p role="status" className="w-full rounded-lg bg-[var(--color-primary-soft)] px-3 py-2 text-sm text-[var(--color-primary-dark)]">
           {notice}
         </p>
       )}
@@ -94,35 +95,34 @@ export function AuthPage() {
 
       {showSocial && (
         <>
-          <div className="flex w-full max-w-sm items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-            <div className="h-px flex-1 bg-[var(--color-border)]" />
+          <div className="flex w-full items-center gap-4 text-base text-[var(--color-text-secondary)]">
+            <div className="h-px flex-1 bg-slate-200" />
             or
-            <div className="h-px flex-1 bg-[var(--color-border)]" />
+            <div className="h-px flex-1 bg-slate-200" />
           </div>
           <GoogleSignInButton />
         </>
       )}
 
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1">
+      <p className="text-center text-lg text-[var(--color-text-primary)]">
         {mode === 'register' && (
-          <button type="button" onClick={() => go('login')} className={linkClass}>
-            Already have an account? Sign in
-          </button>
+          <>Already have an account?{' '}
+            <button type="button" onClick={() => go('login')} className={`${authLink} font-bold`}>Sign in</button></>
         )}
         {mode === 'login' && (
-          <button type="button" onClick={() => go('register')} className={linkClass}>
-            New here? Create an account
-          </button>
+          <>New here?{' '}
+            <button type="button" onClick={() => go('register')} className={`${authLink} font-bold`}>Create an account</button></>
         )}
         {mode === 'forgot' && (
-          <button type="button" onClick={() => go('login')} className={linkClass}>
-            Back to sign in
-          </button>
+          <button type="button" onClick={() => go('login')} className={`${authLink} font-bold`}>Back to sign in</button>
         )}
-      </div>
-      <p className="text-xs text-[var(--color-text-secondary)]">
-        <a href="/terms" className="underline">Terms of Service</a> · <a href="/privacy" className="underline">Privacy Policy</a>
       </p>
+      <p className="text-center text-base text-[var(--color-text-secondary)]">
+        <a href="/terms" className={`${authLink} underline`}>Terms of Service</a>
+        {' · '}
+        <a href="/privacy" className={`${authLink} underline`}>Privacy Policy</a>
+      </p>
+     </div>
     </div>
   )
 }

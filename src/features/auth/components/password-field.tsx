@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
+import { authInput, authLabel } from '@/features/auth/components/auth-ui'
 
 interface PasswordFieldProps {
   id: string
@@ -8,15 +9,14 @@ interface PasswordFieldProps {
   onChange: (value: string) => void
   autoComplete: 'new-password' | 'current-password'
   describedBy?: string
+  invalid?: boolean
 }
 
-export function PasswordField({ id, label, value, onChange, autoComplete, describedBy }: PasswordFieldProps) {
+export function PasswordField({ id, label, value, onChange, autoComplete, describedBy, invalid }: PasswordFieldProps) {
   const [show, setShow] = useState(false)
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm text-[var(--color-text-primary)]">
-        {label}
-      </label>
+    <div className="flex flex-col gap-2">
+      <label htmlFor={id} className={authLabel}>{label}</label>
       <div className="relative">
         <input
           id={id}
@@ -24,18 +24,19 @@ export function PasswordField({ id, label, value, onChange, autoComplete, descri
           required
           autoComplete={autoComplete}
           aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 pr-11 text-sm"
+          className={`${authInput} pr-14`}
         />
         <button
           type="button"
           onClick={() => setShow((s) => !s)}
           aria-label={show ? 'Hide password' : 'Show password'}
           aria-pressed={show}
-          className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-soft-green)]"
+          className="absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
         >
-          {show ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+          {show ? <EyeOff size={22} aria-hidden="true" /> : <Eye size={22} aria-hidden="true" />}
         </button>
       </div>
     </div>
