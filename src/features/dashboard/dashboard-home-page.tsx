@@ -201,7 +201,7 @@ export function DashboardHomePage() {
               </ul>
             ) : (
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Nothing scheduled yet. Scheduling opens once you connect LinkedIn.
+                Nothing scheduled yet. Scheduling is coming soon; for now you can post approved LinkedIn drafts straight away.
               </p>
             )}
           </Card>
@@ -228,9 +228,12 @@ export function DashboardHomePage() {
             <Card>
               <h2 className="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">Connect your accounts</h2>
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Connecting LinkedIn and X is coming soon. Hiba will only ever post with your permission. Substack works
-                by copy and paste.
+                Connect LinkedIn to post approved drafts with one click. Hiba only posts when you say so. X and Substack
+                work by copy and paste.
               </p>
+              <Link to="/dashboard/settings" className="mt-3 inline-block rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-[var(--color-primary-dark)]">
+                Connect LinkedIn
+              </Link>
             </Card>
           )}
         </>
