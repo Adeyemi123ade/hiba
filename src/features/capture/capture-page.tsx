@@ -13,10 +13,11 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { PostImage } from '@/features/capture/post-image'
+import { AnglesPanel } from '@/features/capture/angles-panel'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
   AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, lengthCheck, cleanIdea, fetchIdea, generateDrafts, saveIdea,
-  restoreVersion, savePostBody, type ContentErrorCode, type Platform, type Post, type PostVersion,
+  restoreVersion, savePostBody, type Angle, type ContentErrorCode, type Platform, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
 
 type Phase = 'loading' | 'write' | 'working' | 'drafts'
@@ -289,6 +290,24 @@ export function CapturePage() {
     queryClient.invalidateQueries({ queryKey: ['home-posts'] })
   }
 
+  // HPD-49: rewrite every draft that is not approved yet from the chosen angle.
+  async function writeFromAngle(angle: Angle) {
+    if (!ideaId) return
+    await saveNow()
+    const result = await generateDrafts(ideaId, { angleId: angle.id })
+    const sorted = [...result].sort((a, b) => order(a.platform) - order(b.platform))
+    setPosts(sorted)
+    if (!sorted.find((p) => p.platform === tab && AWAITING_REVIEW.includes(p.status))) {
+      setTab(sorted.find((p) => AWAITING_REVIEW.includes(p.status))?.platform ?? tab)
+    }
+    setSaveState('idle')
+    setCopied(null)
+    setFieldError(null)
+    queryClient.invalidateQueries({ queryKey: ['versions'] })
+    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+    document.getElementById('drafts-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   async function switchVersion(version: PostVersion, all: PostVersion[]) {
     if (!active) return
     await saveNow()
@@ -378,7 +397,7 @@ export function CapturePage() {
     const anyDraft = posts.some((p) => AWAITING_REVIEW.includes(p.status))
     return (
       <div>
-        <h1 className="mb-4 text-2xl font-bold text-[var(--color-text-primary)]">Your drafts</h1>
+        <h1 id="drafts-title" className="mb-4 scroll-mt-4 text-2xl font-bold text-[var(--color-text-primary)]">Your drafts</h1>
         {leaveDialog}
         {errorBanner}
         <Card>
@@ -526,6 +545,8 @@ export function CapturePage() {
           )}
           <VersionHistory post={active} readOnly={isApproved} onUse={switchVersion} />
         </Card>
+
+        {ideaId && <AnglesPanel ideaId={ideaId} online={online} canRewrite={anyDraft} onChoose={writeFromAngle} />}
 
         <div className="flex flex-wrap gap-2">
           <button type="button" className={outlineBtn} onClick={startOver}>Capture another idea</button>
