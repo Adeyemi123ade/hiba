@@ -4,4 +4,4 @@ Disallow: /dashboard/
 Disallow: /onboarding
 Disallow: /auth/
 
-Sitemap: https://YOUR-DOMAIN/sitemap.xml
+Sitemap: https://hiba-neon.vercel.app/sitemap.xml
