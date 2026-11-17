@@ -30,7 +30,13 @@ export function LinkedInCallbackPage() {
   useEffect(() => {
     const { code, state: oauthState, error: denied } = incoming
     if (denied) {
-      setError({ code: denied.includes('cancel') || denied === 'access_denied' ? 'cancelled' : 'linkedin_failed' })
+      if (denied.includes('cancel') || denied === 'access_denied') {
+        // Cancelled on LinkedIn: go straight back to where the person started, with a short note.
+        clearLinkedInReturnPath()
+        navigate(returnPath, { replace: true, state: { linkedinNotice: 'cancelled' } })
+        return
+      }
+      setError({ code: 'linkedin_failed' })
       setState('error')
       return
     }
@@ -55,7 +61,7 @@ export function LinkedInCallbackPage() {
         setState('error')
         clearLinkedInReturnPath()
       })
-  }, [incoming, setParams, queryClient])
+  }, [incoming, setParams, queryClient, navigate, returnPath])
 
   return (
     <div>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLinkedInConnection } from '@/features/linkedin/use-linkedin-connection'
+import { useLinkedInNotice } from '@/features/linkedin/use-linkedin-notice'
 import { ExternalLink, Loader2, Send } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import {
@@ -14,6 +15,18 @@ const outlineBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50'
 
 const codeOf = (e: unknown): LinkedInErrorCode => (e instanceof LinkedInError ? e.code : 'unknown')
+
+/** Shown after the person pressed Cancel on LinkedIn's approval screen and came back here. */
+function CancelledNotice() {
+  const { notice, dismiss } = useLinkedInNotice()
+  if (notice !== 'cancelled') return null
+  return (
+    <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] bg-sky-50 px-3 py-2 text-sm text-sky-900">
+      <span>LinkedIn was not connected because you cancelled. You can connect any time.</span>
+      <button type="button" className="font-semibold underline" onClick={dismiss}>OK</button>
+    </div>
+  )
+}
 
 function useConnectAction(returnTo: string) {
   const [busy, setBusy] = useState(false)
@@ -62,6 +75,7 @@ export function LinkedInConnectionCard() {
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0a66c2] text-sm font-bold text-white" aria-hidden="true">in</span>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">LinkedIn</h2>
+          <CancelledNotice />
 
           {connection.isLoading && <p className="text-sm text-[var(--color-text-secondary)]">Checking your LinkedIn connection...</p>}
 
@@ -192,6 +206,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   if (!c || isExpired(c)) {
     return (
       <div className="mt-3">
+        <CancelledNotice />
         <button type="button" className={primaryBtn} onClick={connect} disabled={connecting}>
           {connecting ? 'Opening LinkedIn...' : c ? 'Reconnect LinkedIn' : 'Connect LinkedIn'}
         </button>

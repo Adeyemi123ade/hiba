@@ -1,0 +1,14 @@
+# Supabase CLI settings for Hiba's Edge Functions.
+# Only used when deploying with the Supabase CLI; in the dashboard set the same switch by hand.
+project_id = "hiba"
+
+[functions.generate-drafts]
+verify_jwt = true
+
+[functions.linkedin]
+verify_jwt = true
+
+# LinkedIn sends the person back here without a Hiba login, so this one must NOT require it.
+# It holds no secrets and only forwards the browser to an address listed in APP_ORIGINS.
+[functions.linkedin-callback]
+verify_jwt = false
