@@ -29,6 +29,8 @@ export interface Post {
   scheduled_for: string | null
   failure_reason?: string | null
   external_url?: string | null
+  image_path?: string | null
+  image_alt?: string | null
   updated_at: string
 }
 
@@ -46,7 +48,8 @@ export const PLATFORMS: { id: Platform; name: string; limit: number }[] = [
   { id: 'substack', name: 'Substack', limit: 20000 },
 ]
 
-const POST_COLUMNS = 'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, updated_at'
+const POST_COLUMNS =
+  'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, updated_at'
 
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =

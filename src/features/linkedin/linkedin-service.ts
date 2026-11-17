@@ -11,7 +11,8 @@ export interface LinkedInConnection {
 
 export type LinkedInErrorCode =
   | 'offline' | 'session_expired' | 'not_configured' | 'state_invalid' | 'linkedin_failed' | 'not_connected'
-  | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited' | 'too_long' | 'cancelled' | 'unknown'
+  | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited' | 'too_long' | 'image_failed' | 'cancelled'
+  | 'unknown'
 
 export class LinkedInError extends Error {
   readonly code: LinkedInErrorCode
@@ -36,6 +37,7 @@ export const LINKEDIN_ERROR_TEXT: Record<LinkedInErrorCode, string> = {
   already_published: 'This post is already on LinkedIn.',
   rate_limited: 'You have posted a lot this hour. Please wait a little before posting again.',
   too_long: 'This post is longer than LinkedIn allows (3000 characters). Shorten it, then try again.',
+  image_failed: 'Your image could not be sent to LinkedIn, so nothing was posted. Try again, or replace the image.',
   cancelled: 'LinkedIn was not connected because the request was cancelled. You can try again any time.',
   unknown: 'Something went wrong. Please try again.',
 }

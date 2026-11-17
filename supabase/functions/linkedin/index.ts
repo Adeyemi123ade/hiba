@@ -26,7 +26,7 @@ const cors = {
 type ErrorCode =
   | 'bad_request' | 'unauthorized' | 'not_found' | 'not_configured' | 'state_invalid' | 'linkedin_failed'
   | 'not_connected' | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited'
-  | 'too_long' | 'server_error'
+  | 'too_long' | 'image_failed' | 'server_error'
 
 function reply(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -86,6 +86,63 @@ function base64url(text: string) {
 function fromBase64url(text: string) {
   const s = text.replace(/-/g, '+').replace(/_/g, '/')
   return atob(s + '='.repeat((4 - (s.length % 4)) % 4))
+}
+
+const IMAGE_BUCKET = 'post-images'
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024
+
+type ImageResult = { asset: string } | { error: ErrorCode; status: number; detail?: string }
+
+/** The only part of the database client the image upload needs. */
+interface StorageReader {
+  storage: { from: (bucket: string) => { download: (path: string) => Promise<{ data: Blob | null; error: unknown }> } }
+}
+
+/**
+ * Sends one image to LinkedIn (register upload, then upload the bytes) and returns its asset id.
+ * The image is read from the person's own private storage folder, as that person (RLS applies).
+ */
+async function uploadImageToLinkedIn(
+  db: StorageReader, accessToken: string, memberId: string, path: string,
+): Promise<ImageResult> {
+  const { data: file, error } = await db.storage.from(IMAGE_BUCKET).download(path)
+  if (error || !file) return { error: 'image_failed', status: 502, detail: 'Hiba could not read your image. Remove it and add it again.' }
+  if (file.size > IMAGE_MAX_BYTES) return { error: 'image_failed', status: 400, detail: 'The image is larger than 5 MB.' }
+
+  const register = await linkedinFetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
+    body: JSON.stringify({
+      registerUploadRequest: {
+        recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+        owner: `urn:li:person:${memberId}`,
+        serviceRelationships: [{ relationshipType: 'OWNER', identifier: 'urn:li:userGeneratedContent' }],
+      },
+    }),
+  }).catch(() => null)
+  if (!register) return { error: 'image_failed', status: 502, detail: 'LinkedIn did not answer while preparing the image.' }
+  if (register.status === 401) return { error: 'linkedin_expired', status: 401 }
+  if (!register.ok) {
+    console.error('LinkedIn registerUpload failed', register.status, (await register.text()).slice(0, 300))
+    return { error: 'image_failed', status: 502, detail: `LinkedIn would not accept the image (${register.status}).` }
+  }
+  const reg = await register.json() as {
+    value?: { asset?: string; uploadMechanism?: Record<string, { uploadUrl?: string }> }
+  }
+  const asset = reg.value?.asset
+  const uploadUrl = reg.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl
+  if (!asset || !uploadUrl) return { error: 'image_failed', status: 502, detail: 'LinkedIn did not return an upload address.' }
+
+  const upload = await linkedinFetch(uploadUrl, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
+    body: new Uint8Array(await file.arrayBuffer()),
+  }).catch(() => null)
+  if (!upload || !upload.ok) {
+    console.error('LinkedIn image upload failed', upload?.status)
+    return { error: 'image_failed', status: 502, detail: 'Uploading the image to LinkedIn did not work.' }
+  }
+  return { asset }
 }
 
 async function linkedinFetch(url: string, init: RequestInit) {
@@ -220,7 +277,7 @@ Deno.serve(async (req) => {
     if (!/^[0-9a-f-]{36}$/i.test(postId)) return fail(400, 'bad_request')
 
     const { data: post } = await db.from('posts')
-      .select('id, platform, status, body, external_id, external_url').eq('id', postId).maybeSingle()
+      .select('id, platform, status, body, external_id, external_url, image_path, image_alt').eq('id', postId).maybeSingle()
     if (!post || post.platform !== 'linkedin') return fail(404, 'not_found')
     if (post.status === 'published') return fail(409, 'already_published', post.external_url ?? undefined)
     if (post.status !== 'approved') return fail(409, 'not_approved')
@@ -247,6 +304,21 @@ Deno.serve(async (req) => {
     if (!claimed || claimed.length === 0) return fail(409, 'not_approved')
     const release = () => db.from('posts').update({ status: 'approved' }).eq('id', postId).eq('status', 'scheduled')
 
+    // Image first: if it cannot be sent, nothing is posted and the post goes back to approved.
+    let media: Record<string, unknown>[] | null = null
+    if (post.image_path) {
+      const image = await uploadImageToLinkedIn(db, accessToken, conn.member_id, post.image_path)
+      if ('error' in image) {
+        await release()
+        return fail(image.status, image.error, image.detail)
+      }
+      media = [{
+        status: 'READY',
+        media: image.asset,
+        ...(post.image_alt ? { description: { text: String(post.image_alt).slice(0, 300) } } : {}),
+      }]
+    }
+
     let res: Response
     try {
       res = await linkedinFetch('https://api.linkedin.com/v2/ugcPosts', {
@@ -260,7 +332,9 @@ Deno.serve(async (req) => {
           author: `urn:li:person:${conn.member_id}`,
           lifecycleState: 'PUBLISHED',
           specificContent: {
-            'com.linkedin.ugc.ShareContent': { shareCommentary: { text }, shareMediaCategory: 'NONE' },
+            'com.linkedin.ugc.ShareContent': media
+              ? { shareCommentary: { text }, shareMediaCategory: 'IMAGE', media }
+              : { shareCommentary: { text }, shareMediaCategory: 'NONE' },
           },
           visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
         }),
