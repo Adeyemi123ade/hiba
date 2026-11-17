@@ -11,6 +11,7 @@ import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
+import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
   AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, cleanIdea, fetchIdea, generateDrafts, saveIdea,
@@ -30,7 +31,7 @@ const order = (p: Platform) => PLATFORMS.findIndex((x) => x.id === p)
 
 /** What publishing looks like for each platform until accounts can be connected. */
 const NEXT_STEP: Record<Platform, string> = {
-  linkedin: 'Connect LinkedIn first to schedule it. For now, copy it and post it on LinkedIn yourself.',
+  linkedin: 'Post it to your LinkedIn profile now, or copy it and post it yourself.',
   x: 'Connect X first to schedule it. For now, copy it and post it on X yourself.',
   substack: 'Substack has no automatic posting. Copy it and paste it into a new Substack post.',
 }
@@ -475,12 +476,19 @@ export function CapturePage() {
                 <button type="button" className={primaryBtn} onClick={copyActive}>
                   <Copy size={16} aria-hidden="true" /> Copy
                 </button>
-                {active.platform !== 'substack' && (
-                  <button type="button" className={outlineBtn} disabled title="Coming soon">
-                    Connect {active.platform === 'x' ? 'X' : 'LinkedIn'} first
-                  </button>
-                )}
               </div>
+              {active.platform === 'linkedin' && ideaId && (active.status === 'approved' || active.status === 'published') && (
+                <LinkedInPublishPanel
+                  postId={active.id}
+                  ideaId={ideaId}
+                  isPublished={active.status === 'published'}
+                  publishedUrl={active.external_url ?? null}
+                  onPublished={(url) => {
+                    setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'published', external_url: url } : p)))
+                    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+                  }}
+                />
+              )}
             </div>
           ) : (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
