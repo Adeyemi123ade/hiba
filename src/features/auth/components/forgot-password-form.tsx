@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { normalizeEmail, validateEmail } from '@/lib/email'
 import { requestPasswordReset } from '@/features/auth/api/auth-service'
 import { friendlyAuthError } from '@/features/auth/api/auth-errors'
+import { authInput, authLabel, authPrimary } from '@/features/auth/components/auth-ui'
 
 interface ForgotPasswordFormProps {
   initialEmail?: string
@@ -32,18 +32,18 @@ export function ForgotPasswordForm({ initialEmail = '', onSent }: ForgotPassword
   }
 
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
+    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
       <p className="text-sm text-[var(--color-text-secondary)]">
         Enter your account email and we will send you a code to reset your password.
       </p>
       <div className="flex flex-col gap-1">
-        <label htmlFor="forgot-email" className="text-sm text-[var(--color-text-primary)]">Email address</label>
+        <label htmlFor="forgot-email" className={authLabel}>Email address</label>
         <input id="forgot-email" type="email" required autoComplete="email" value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 text-sm" />
+          className={authInput} />
       </div>
       {error && <p role="alert" className="text-sm text-[var(--color-error)]">{error}</p>}
-      <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Sending...' : 'Send reset code'}</Button>
+      <button type="submit" className={authPrimary} disabled={isSubmitting}>{isSubmitting ? 'Sending...' : 'Send reset code'}</button>
     </form>
   )
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { normalizeEmail } from '@/lib/email'
 import { signInWithPassword } from '@/features/auth/api/auth-service'
 import { PasswordField } from '@/features/auth/components/password-field'
+import { authInput, authLabel, authPrimary } from '@/features/auth/components/auth-ui'
 
 interface LoginFormProps {
   onSignedIn: () => void
@@ -40,14 +40,14 @@ export function LoginForm({ onSignedIn, onForgotPassword, onNeedsVerification }:
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
       <div className="flex flex-col gap-1">
-        <label htmlFor="login-email" className="text-sm text-[var(--color-text-primary)]">
+        <label htmlFor="login-email" className={authLabel}>
           Email address
         </label>
         <input id="login-email" type="email" required autoComplete="email" value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 text-sm" />
+          className={authInput} />
       </div>
       <PasswordField id="login-password" label="Password" value={password} onChange={setPassword}
         autoComplete="current-password" />
@@ -56,7 +56,7 @@ export function LoginForm({ onSignedIn, onForgotPassword, onNeedsVerification }:
         Forgot password?
       </button>
       {error && <p role="alert" className="text-sm text-[var(--color-error)]">{error}</p>}
-      <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Signing in...' : 'Sign in'}</Button>
+      <button type="submit" className={authPrimary} disabled={isSubmitting}>{isSubmitting ? 'Signing in...' : 'Sign in'}</button>
     </form>
   )
 }

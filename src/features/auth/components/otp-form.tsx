@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { verifyRegistrationOtp, resendRegistrationOtp } from '@/features/auth/api/auth-service'
 import { friendlyAuthError } from '@/features/auth/api/auth-errors'
 import { useCooldown } from '@/features/auth/use-cooldown'
+import { authInput, authLabel, authPrimary } from '@/features/auth/components/auth-ui'
 
 interface OtpFormProps {
   email: string
@@ -57,12 +57,12 @@ export function OtpForm({ email, onVerified, onChangeEmail, onBackToSignIn, onFo
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4">
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
       <p className="text-sm text-[var(--color-text-secondary)]">
         We sent a 6-digit code to <span className="font-medium text-[var(--color-text-primary)]">{email}</span>. It can take a minute to arrive.
       </p>
       <div className="flex flex-col gap-1">
-        <label htmlFor="otp" className="text-sm text-[var(--color-text-primary)]">
+        <label htmlFor="otp" className={authLabel}>
           Verification code
         </label>
         <input
@@ -74,14 +74,14 @@ export function OtpForm({ email, onVerified, onChangeEmail, onBackToSignIn, onFo
           maxLength={6}
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          className="rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 py-2 text-lg tracking-[0.4em]"
+          className={`${authInput} text-center text-xl tracking-[0.4em]`}
         />
       </div>
       {error && <p role="alert" className="text-sm text-[var(--color-error)]">{error}</p>}
       {info && <p role="status" className="text-sm text-[var(--color-success)]">{info}</p>}
-      <Button type="submit" disabled={isSubmitting}>
+      <button type="submit" className={authPrimary} disabled={isSubmitting}>
         {isSubmitting ? 'Verifying...' : 'Verify and continue'}
-      </Button>
+      </button>
 
       <div className="flex flex-col gap-2 border-t border-[var(--color-border)] pt-4 text-sm">
         <p className="text-[var(--color-text-secondary)]">Did not get the code?</p>
