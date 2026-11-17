@@ -231,6 +231,11 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
             This posts the text above{hasImage ? ' and its image' : ''} <strong>publicly</strong> on your LinkedIn profile{c.name ? ` (${c.name})` : ''}, right now.
             Hiba cannot delete it from LinkedIn later.
           </p>
+          {!hasImage && (
+            <p className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+              No image attached. Posts with an image usually get much more attention. You can add one above, or post without it.
+            </p>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             <button type="button" className={primaryBtn} onClick={publish} disabled={publishing}>
               {publishing ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Posting...</> : 'Yes, post it'}

@@ -100,7 +100,12 @@ export function PostImage({ userId, postId, path, alt, editable, online, onChang
 
   return (
     <div className="mt-4 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-3">
-      <p className="mb-2 text-sm font-semibold text-[var(--color-text-primary)]">Image</p>
+      <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
+        Image
+        {!path && editable && (
+          <span className="rounded-full bg-[var(--color-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--color-primary-dark)]">Recommended</span>
+        )}
+      </p>
       {input}
 
       {!path && (
@@ -113,7 +118,11 @@ export function PostImage({ userId, postId, path, alt, editable, online, onChang
           ) : (
             <p className="text-sm text-[var(--color-text-secondary)]">No image on this post.</p>
           )}
-          {editable && <p className="text-xs text-[var(--color-text-secondary)]">JPG, PNG or GIF, up to 5 MB. It is posted together with your text on LinkedIn.</p>}
+          {editable && (
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              Optional, but posts with an image usually get much more attention. JPG, PNG or GIF, up to 5 MB, posted together with your text.
+            </p>
+          )}
         </div>
       )}
 

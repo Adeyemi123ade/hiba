@@ -15,7 +15,7 @@ import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { PostImage } from '@/features/capture/post-image'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
-  AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, cleanIdea, fetchIdea, generateDrafts, saveIdea,
+  AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, lengthCheck, cleanIdea, fetchIdea, generateDrafts, saveIdea,
   restoreVersion, savePostBody, type ContentErrorCode, type Platform, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
 
@@ -38,22 +38,7 @@ const NEXT_STEP: Record<Platform, string> = {
 }
 
 function countLabel(platform: Platform, body: string) {
-  if (platform === 'x') {
-    const parts = body.split(/\n\s*\n/).filter((p) => p.trim())
-    const tooLong = parts.filter((p) => p.length > 280).length
-    return {
-      text: `${parts.length} ${parts.length === 1 ? 'post' : 'posts'} in this thread`,
-      warning: tooLong ? `${tooLong} ${tooLong === 1 ? 'post is' : 'posts are'} over 280 characters. X will not accept ${tooLong === 1 ? 'it' : 'them'}.` : null,
-    }
-  }
-  if (platform === 'substack') {
-    const words = body.trim() ? body.trim().split(/\s+/).length : 0
-    return { text: `${words} words`, warning: null }
-  }
-  return {
-    text: `${body.length} of 3000 characters`,
-    warning: body.length > 3000 ? 'This is over the LinkedIn limit of 3000 characters.' : null,
-  }
+  return lengthCheck(platform, body)
 }
 
 export function CapturePage() {
@@ -226,6 +211,7 @@ export function CapturePage() {
     const next = { ...active, ...change }
     setPosts((list) => list.map((p) => (p.id === active.id ? next : p)))
     setCopied(null)
+    setFieldError(null)
     setSaveState('saving')
     pending.current = next
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -251,6 +237,12 @@ export function CapturePage() {
     if (!active.body.trim()) {
       setError(null)
       setFieldError('This draft is empty. Write something or tap "Write it again".')
+      return
+    }
+    const length = lengthCheck(active.platform, active.body)
+    if (length.warning) {
+      setError(null)
+      setFieldError(length.warning)
       return
     }
     setApproving(true)

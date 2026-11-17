@@ -283,7 +283,8 @@ Deno.serve(async (req) => {
     if (post.status !== 'approved') return fail(409, 'not_approved')
     const text = String(post.body ?? '').trim()
     if (!text) return fail(400, 'bad_request')
-    if (text.length > 3000) return fail(400, 'too_long')
+    // Owner rule: LinkedIn posts are at most 200 words (LinkedIn itself allows 3000 characters).
+    if (text.length > 3000 || text.split(/\s+/).length > 200) return fail(400, 'too_long')
 
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { count } = await db.from('posts').select('id', { count: 'exact', head: true })
