@@ -4,8 +4,12 @@ const rawUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim()
 const rawKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim()
 
 function findConfigProblem(): string | null {
+  // Name exactly which setting is missing, and where to set it on this computer or on the host.
   if (!rawUrl || !rawKey) {
-    return 'VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing. Put both in a file named .env.local in the project root, then stop and restart "npm run dev".'
+    const missing = [!rawUrl && 'VITE_SUPABASE_URL', !rawKey && 'VITE_SUPABASE_ANON_KEY'].filter(Boolean).join(' and ')
+    return import.meta.env.DEV
+      ? `${missing} is missing. Put it in the file .env.local in the project root, then stop and restart "npm run dev".`
+      : `${missing} is missing from this deployment. On Vercel: Settings, Environment Variables, add it for Production, then Redeploy.`
   }
   try {
     new URL(rawUrl)
