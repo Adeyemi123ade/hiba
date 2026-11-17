@@ -42,11 +42,44 @@ export interface IdeaWithPosts {
 }
 
 export const IDEA_MAX = 2000
-export const PLATFORMS: { id: Platform; name: string; limit: number }[] = [
-  { id: 'linkedin', name: 'LinkedIn', limit: 3000 },
-  { id: 'x', name: 'X thread', limit: 280 },
-  { id: 'substack', name: 'Substack', limit: 20000 },
+export const PLATFORMS: { id: Platform; name: string; limit: number; maxWords: number }[] = [
+  { id: 'linkedin', name: 'LinkedIn', limit: 3000, maxWords: 200 },
+  { id: 'x', name: 'X thread', limit: 280, maxWords: 100 },
+  { id: 'substack', name: 'Substack', limit: 20000, maxWords: 1500 },
 ]
+
+export const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
+
+/**
+ * Length rules (owner, 17 Nov 2026): LinkedIn at most 200 words, X at most 100 words in total and
+ * 280 characters per post (X's own rule), Substack at most 1500 words. `warning` is set when the
+ * draft breaks a rule; such a draft cannot be approved until it is shortened.
+ */
+export function lengthCheck(platform: Platform, body: string): { text: string; warning: string | null } {
+  const max = PLATFORMS.find((p) => p.id === platform)?.maxWords ?? Infinity
+  const words = countWords(body)
+  if (platform === 'x') {
+    const parts = body.split(/\n\s*\n/).filter((p) => p.trim())
+    const tooLong = parts.filter((p) => p.length > 280).length
+    const problems = [
+      words > max ? `The thread is ${words} words; the limit is ${max}.` : '',
+      tooLong ? `${tooLong} ${tooLong === 1 ? 'post is' : 'posts are'} over 280 characters, which X does not allow.` : '',
+    ].filter(Boolean)
+    return {
+      text: `${parts.length} ${parts.length === 1 ? 'post' : 'posts'} in this thread · ${words} of ${max} words`,
+      warning: problems.length ? `${problems.join(' ')} Shorten it before approving.` : null,
+    }
+  }
+  const name = platform === 'linkedin' ? 'LinkedIn' : 'Substack'
+  const chars = platform === 'linkedin' ? ` · ${body.length} of 3000 characters` : ''
+  return {
+    text: `${words} of ${max} words${chars}`,
+    warning:
+      words > max || (platform === 'linkedin' && body.length > 3000)
+        ? `This ${name} post is over the limit of ${max} words. Shorten it before approving.`
+        : null,
+  }
+}
 
 const POST_COLUMNS =
   'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, updated_at'
