@@ -139,11 +139,12 @@ export function LinkedInConnectionCard() {
 }
 
 /** HPD-71 (post now): publish an approved LinkedIn draft, after a clear confirmation. */
-export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished }: {
+export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, hasImage, onPublished }: {
   postId: string
   ideaId: string
   publishedUrl: string | null
   isPublished: boolean
+  hasImage: boolean
   onPublished: (url: string | null) => void
 }) {
   const connection = useLinkedInConnection()
@@ -227,7 +228,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
       ) : (
         <div role="alertdialog" aria-label="Post to LinkedIn" className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
           <p className="text-sm text-[var(--color-text-primary)]">
-            This posts the text above <strong>publicly</strong> on your LinkedIn profile{c.name ? ` (${c.name})` : ''}, right now.
+            This posts the text above{hasImage ? ' and its image' : ''} <strong>publicly</strong> on your LinkedIn profile{c.name ? ` (${c.name})` : ''}, right now.
             Hiba cannot delete it from LinkedIn later.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">

@@ -12,6 +12,7 @@ import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
+import { PostImage } from '@/features/capture/post-image'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
   AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, cleanIdea, fetchIdea, generateDrafts, saveIdea,
@@ -461,6 +462,22 @@ export function CapturePage() {
           {count.warning && <p className="mt-1 text-sm text-[var(--color-error)]">{count.warning}</p>}
           {fieldError && <p role="alert" className="mt-1 text-sm text-[var(--color-error)]">{fieldError}</p>}
 
+          {active.platform === 'linkedin' && userId && (
+            <PostImage
+              key={active.id}
+              userId={userId}
+              postId={active.id}
+              path={active.image_path ?? null}
+              alt={active.image_alt ?? null}
+              editable={active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'}
+              online={online}
+              onChange={(change) => {
+                setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, ...change } : p)))
+                queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+              }}
+            />
+          )}
+
           {isApproved ? (
             <div className="mt-4 rounded-[var(--radius-md)] bg-[var(--color-primary-soft)] p-4" role="status">
               <p className="font-semibold text-[var(--color-primary-dark)]">{STATUS_LABELS[active.status]}.</p>
@@ -482,6 +499,7 @@ export function CapturePage() {
                   postId={active.id}
                   ideaId={ideaId}
                   isPublished={active.status === 'published'}
+                  hasImage={Boolean(active.image_path)}
                   publishedUrl={active.external_url ?? null}
                   onPublished={(url) => {
                     setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'published', external_url: url } : p)))

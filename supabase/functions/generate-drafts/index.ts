@@ -253,7 +253,7 @@ Deno.serve(async (req) => {
   }
 
   const { data: posts, error: postsError } = await db
-    .from('posts').select('id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, updated_at')
+    .from('posts').select('id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, updated_at')
     .eq('idea_id', ideaId)
   if (postsError) return fail(500, 'server_error')
   return reply(200, { posts })
