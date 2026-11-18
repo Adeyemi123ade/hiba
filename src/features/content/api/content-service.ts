@@ -1,5 +1,6 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { IMAGE_BUCKET } from '@/features/content/api/image-service'
 
 export type Platform = 'linkedin' | 'x' | 'substack'
 export type PostStatus =
@@ -31,6 +32,9 @@ export interface Post {
   external_url?: string | null
   image_path?: string | null
   image_alt?: string | null
+  /** What the post was before it was archived (HPD-57). Only on the Posts page. */
+  archived_from?: PostStatus | null
+  archived_at?: string | null
   updated_at: string
 }
 
@@ -87,7 +91,7 @@ const POST_COLUMNS =
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
   | 'offline' | 'session_expired' | 'not_found' | 'rate_limited' | 'not_configured' | 'ai_failed' | 'unknown'
-  | 'nothing_to_change'
+  | 'nothing_to_change' | 'image_delete_failed'
 
 export class ContentError extends Error {
   readonly code: ContentErrorCode
@@ -216,6 +220,7 @@ export const ERROR_TEXT: Record<ContentErrorCode, string> = {
   ai_failed: 'We could not write your posts just now. Your idea is saved. Please try again.',
   unknown: 'Something went wrong. Your idea is kept on this page. Please try again.',
   nothing_to_change: 'Every post for this idea is already approved, so there is nothing left to rewrite.',
+  image_delete_failed: 'We could not delete the image, so nothing was deleted. Please try again.',
 }
 
 export interface PostVersion {
@@ -303,3 +308,50 @@ export async function setAngleStatus(angleId: string, status: Exclude<AngleStatu
   const { error } = await supabase.from('angles').update({ status }).eq('id', angleId)
   if (error) throw toContentError(error)
 }
+
+const offlineNow = () => typeof navigator !== 'undefined' && !navigator.onLine
+
+/** HPD-57: hide a post from normal views. It can be restored at any time. */
+export async function archivePost(postId: string): Promise<void> {
+  if (offlineNow()) throw new ContentError('offline')
+  const { data, error } = await supabase.from('posts').update({ status: 'archived' }).eq('id', postId).select('id')
+  if (error) throw toContentError(error)
+  if (!data?.length) throw new ContentError('not_found')
+}
+
+/**
+ * Brings an archived post back. The database puts it back to exactly what it was before
+ * (for example Published stays Published), whatever is sent. Returns that status.
+ */
+export async function restorePost(postId: string): Promise<PostStatus> {
+  if (offlineNow()) throw new ContentError('offline')
+  const { data, error } = await supabase
+    .from('posts').update({ status: 'draft' }).eq('id', postId).eq('status', 'archived').select('status')
+  if (error) throw toContentError(error)
+  if (!data?.length) throw new ContentError('not_found')
+  return (data[0] as { status: PostStatus }).status
+}
+
+/** Words the person types to confirm a permanent delete. */
+export const DELETE_WORD = 'DELETE'
+
+/**
+ * HPD-57: deletes an archived post for good, with its versions and image. The image file is
+ * removed first: if that fails, nothing is deleted, so no stray copy is ever left behind.
+ * If it was the last post from its idea, the database deletes the idea (and its angles) too.
+ * Hiba cannot delete anything on LinkedIn: a published post stays there.
+ */
+export async function deletePostForever(post: Pick<Post, 'id' | 'image_path'>): Promise<void> {
+  if (offlineNow()) throw new ContentError('offline')
+  if (post.image_path) {
+    const { error } = await supabase.storage.from(IMAGE_BUCKET).remove([post.image_path])
+    if (error) throw offlineNow() ? new ContentError('offline') : new ContentError('image_delete_failed')
+  }
+  const { data, error } = await supabase.from('posts').delete().eq('id', post.id).eq('status', 'archived').select('id')
+  if (error) throw toContentError(error)
+  if (!data?.length) throw new ContentError('not_found')
+}
+
+/** True when the post was published, so the person can be reassured it stays on LinkedIn. */
+export const wasPublished = (post: Pick<Post, 'status' | 'archived_from' | 'external_url'>) =>
+  post.status === 'published' || post.archived_from === 'published' || Boolean(post.external_url)

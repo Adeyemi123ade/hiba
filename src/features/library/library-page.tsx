@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { ExternalLink, ImageIcon, Loader2, Search, X } from 'lucide-react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Archive, ArchiveRestore, ExternalLink, ImageIcon, Loader2, Search, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useSession } from '@/features/auth/use-session'
 import { useOnline } from '@/features/onboarding/use-online'
@@ -9,7 +9,10 @@ import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
-import { ContentError, PLATFORMS, type Platform } from '@/features/content/api/content-service'
+import {
+  ContentError, PLATFORMS, STATUS_LABELS, archivePost, restorePost, wasPublished, type ContentErrorCode, type Platform,
+} from '@/features/content/api/content-service'
+import { DeletePostDialog } from '@/features/library/delete-post-dialog'
 import {
   SEARCH_MAX, STATUS_FILTERS, fetchLibraryPage, imageThumbnails, isPlatform, isStatusFilter,
   type LibraryPost, type StatusFilter,
@@ -22,6 +25,86 @@ function preview(post: LibraryPost) {
   const source = (post.platform === 'substack' && post.title) || post.body || 'Empty draft'
   const line = source.split('\n').find((l) => l.trim()) ?? source
   return line.length > 120 ? `${line.slice(0, 117)}...` : line
+}
+
+const quietBtn =
+  'inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-1 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-50'
+
+function actionError(code: ContentErrorCode) {
+  if (code === 'offline') return 'You are offline. Reconnect, then try again.'
+  if (code === 'session_expired') return 'Your session expired. Sign in again, then try again.'
+  if (code === 'not_found') return 'This post has changed or was removed. Refresh the page.'
+  return 'Something went wrong. Please try again.'
+}
+
+type Notice = { text: string; undo?: () => Promise<void> }
+
+/** HPD-57: archive a post, or restore or delete an archived one. */
+function RowActions({ post, online, onDone, onAskDelete }: {
+  post: LibraryPost
+  online: boolean
+  onDone: (notice: Notice | null, error?: ContentErrorCode) => void
+  onAskDelete: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [confirmScheduled, setConfirmScheduled] = useState(false)
+  const codeOf = (e: unknown): ContentErrorCode => (e instanceof ContentError ? e.code : 'unknown')
+
+  async function run(action: () => Promise<Notice>) {
+    setBusy(true)
+    try {
+      onDone(await action())
+    } catch (e) {
+      onDone(null, codeOf(e))
+    } finally {
+      setBusy(false)
+      setConfirmScheduled(false)
+    }
+  }
+
+  const archive = () => run(async () => {
+    await archivePost(post.id)
+    return {
+      text: wasPublished(post) ? 'Post archived. It stays on LinkedIn; only Hiba hides it.' : 'Post archived.',
+      undo: async () => { await restorePost(post.id) },
+    }
+  })
+  const restore = () => run(async () => {
+    const back = await restorePost(post.id)
+    return { text: `Post restored. It is back as ${STATUS_LABELS[back]}.` }
+  })
+
+  if (post.status === 'archived') {
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        <button type="button" className={quietBtn} disabled={busy || !online} onClick={restore}>
+          {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ArchiveRestore size={16} aria-hidden="true" />} Restore
+        </button>
+        <button type="button" className={clsx(quietBtn, 'text-red-700 hover:text-red-800')} disabled={busy || !online} onClick={onAskDelete}>
+          <Trash2 size={16} aria-hidden="true" /> Delete permanently
+        </button>
+      </div>
+    )
+  }
+  if (confirmScheduled) {
+    return (
+      <div className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 p-2 text-sm text-amber-900">
+        Archiving cancels its scheduled time. If you restore it, it comes back as Approved with no time set.
+        <div className="mt-1 flex gap-2">
+          <button type="button" className={quietBtn} disabled={busy || !online} onClick={archive}>Archive anyway</button>
+          <button type="button" className={quietBtn} onClick={() => setConfirmScheduled(false)}>Keep it scheduled</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="mt-2">
+      <button type="button" className={quietBtn} disabled={busy || !online}
+        onClick={() => (post.status === 'scheduled' ? setConfirmScheduled(true) : archive())}>
+        {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Archive size={16} aria-hidden="true" />} Archive
+      </button>
+    </div>
+  )
 }
 
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
@@ -41,6 +124,33 @@ export function LibraryPage() {
   const search = params.get('q') ?? ''
   const [typed, setTyped] = useState(search)
   const [slow, setSlow] = useState(false)
+  const queryClient = useQueryClient()
+  const location = useLocation()
+  const navigate = useNavigate()
+  // A message carried over from the drafts screen (for example after a permanent delete).
+  const [notice, setNotice] = useState<Notice | null>(() => {
+    const text = (location.state as { notice?: string } | null)?.notice
+    return text ? { text } : null
+  })
+  const [actionErr, setActionErr] = useState<ContentErrorCode | null>(null)
+  const [deleting, setDeleting] = useState<LibraryPost | null>(null)
+
+  // Clear the carried-over message from history, so going back does not show it again.
+  useEffect(() => {
+    if ((location.state as { notice?: string } | null)?.notice) navigate(location.pathname + location.search, { replace: true, state: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: ['library'] })
+    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+  }
+
+  function afterAction(next: Notice | null, error?: ContentErrorCode) {
+    setActionErr(error ?? null)
+    setNotice(next)
+    if (!error) refresh()
+  }
 
   /**
    * Changes some filters, starting from the address as it is right now. (React Router's own
@@ -236,6 +346,39 @@ export function LibraryPage() {
         </Card>
       )}
 
+      {notice && (
+        <Banner
+          tone="success"
+          action={notice.undo ? (
+            <button type="button" className="font-semibold underline" disabled={!online}
+              onClick={async () => {
+                const undo = notice.undo
+                setNotice(null)
+                try { await undo?.(); setNotice({ text: 'Undone. The post is back.' }); refresh() } catch { setActionErr('unknown') }
+              }}>
+              Undo
+            </button>
+          ) : undefined}
+        >
+          {notice.text}
+        </Banner>
+      )}
+      {actionErr && (
+        <Banner tone="error" action={actionErr === 'session_expired' ? <SignInAgainButton /> : undefined}>{actionError(actionErr)}</Banner>
+      )}
+      {deleting && (
+        <DeletePostDialog
+          post={deleting}
+          online={online}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            const published = wasPublished(deleting)
+            setDeleting(null)
+            afterAction({ text: published ? 'Post deleted from Hiba for good. It is still on LinkedIn.' : 'Post deleted for good.' })
+          }}
+        />
+      )}
+
       {posts.length > 0 && (
         <Card className="p-0">
           <ul aria-label="Your posts">
@@ -275,7 +418,9 @@ export function LibraryPage() {
                             View on LinkedIn <ExternalLink size={12} aria-hidden="true" />
                           </a>
                         )}
+                        {post.status === 'archived' && post.archived_at && <span>Archived {shortDate(post.archived_at)}</span>}
                       </p>
+                      <RowActions post={post} online={online} onDone={afterAction} onAskDelete={() => setDeleting(post)} />
                     </div>
                   </div>
                 </li>
