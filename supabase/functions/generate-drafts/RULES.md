@@ -94,10 +94,25 @@ insight, question for your audience, and short motivational post.
 - When you pick "Write my posts from this", all drafts that are not approved yet are written again from that angle, following every rule above. Approved, scheduled and published posts are never changed. Your earlier text stays under "Earlier versions", marked "Written from the angle: ...".
 - Angles stay linked to the idea. You can save them, discard them, or bring discarded ones back. Asking for angles counts toward the hourly limit below.
 
-## 6. Safety and limits
+## 6. Follow-up comments (Phase 2, master prompt section 10)
+
+On the LinkedIn post you can ask for 5 to 10 follow-up comments. The AI sees your context (section 1), your idea, your LinkedIn post and your writing sample.
+
+- Each comment connects to the post and adds ONE new thought: an extra perspective, an explanation, a practical example, a common misconception, a related lesson, a practical or technical consideration, a question, or an overlooked implication.
+- Never repeats the post or another comment. Sounds like you adding to your own discussion.
+- Never invents facts, names, numbers or experiences; examples are general or hypothetical unless your idea gave them.
+- Never filler: "Great point", "Another thing to consider", "I completely agree", "Let me add something", plus every banned phrase in section 2.
+- The comments form a sequence that develops your argument; the subject decides the order, not a template.
+- 20 to 80 words each (Hiba checks 100 words and 1,250 characters as hard limits), one sentence per line, no hashtags, no numbering, no em dashes.
+- After writing, Hiba checks the list (banned phrases, length, hashtags, numbering, long lines, lines copied from the post) and asks once more if needed, keeping the better attempt.
+- "Write again" on one comment shows the AI the other comments so the new one says something different.
+- **Hiba never posts comments to LinkedIn.** You copy them and paste them yourself. Automatic comment publishing is not built (LinkedIn permission not verified).
+- You can switch the whole feature off in Settings.
+
+## 7. Safety and limits
 
 - The OpenAI key stays on the server; your browser never sees it.
-- At most 20 drafting requests per person per hour.
+- At most 20 drafting requests per person per hour (drafts, rewrites, angles and comments all count).
 - Each request times out after 45 seconds and you can try again; your idea is saved first, so nothing is lost.
 - Your writing is not written to server logs.
 - Model: `gpt-4o-mini` unless the `OPENAI_MODEL` secret says otherwise. Creativity setting (temperature): 0.6, slightly lower than before so the AI stays closer to your idea. To use a stronger model, set the `OPENAI_MODEL` secret (for example `gpt-4o`) in Supabase; no code change is needed.

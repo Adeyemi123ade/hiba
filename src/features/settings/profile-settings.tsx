@@ -249,7 +249,60 @@ export function ProfileSettings() {
           </dl>
         </Card>
       ))}
+      <FollowUpSwitch answers={answers} userId={userId} online={online}
+        onSaved={(merged) => queryClient.setQueryData(['profile', userId], (old: typeof profile.data) => (old ? { ...old, onboarding: merged } : old))} />
       {error && !editing && <p role="alert" className="mb-4 text-sm text-red-700">{error}</p>}
     </>
+  )
+}
+
+/** Phase 2: switch the follow-up comments feature on or off (owner's master prompt, section 10). */
+function FollowUpSwitch({ answers, userId, online, onSaved }: {
+  answers: Answers
+  userId: string | undefined
+  online: boolean
+  onSaved: (merged: Answers) => void
+}) {
+  const on = answers.followUpComments !== 'off'
+  const [saving, setSaving] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  async function flip() {
+    if (!userId) return
+    setSaving(true)
+    setProblem(null)
+    setDone(false)
+    const merged: Answers = { ...answers, followUpComments: on ? 'off' : 'on' }
+    try {
+      await saveOnboarding(userId, merged, true)
+      onSaved(merged)
+      setDone(true)
+    } catch {
+      setProblem(navigator.onLine ? 'We could not save that. Please try again.' : 'You are offline. Reconnect, then try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card aria-labelledby="followups-title">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 id="followups-title" className="text-lg font-semibold text-[var(--color-text-primary)]">Follow-up comments</h2>
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Hiba can write 5 to 10 comments that extend each LinkedIn post. You review and copy them; Hiba never posts them for you.
+          </p>
+        </div>
+        <button type="button" role="switch" aria-checked={on} aria-labelledby="followups-title" onClick={flip} disabled={saving || !online}
+          className={`relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors disabled:opacity-50 ${on ? 'bg-[var(--color-primary-dark)]' : 'bg-slate-300'}`}>
+          <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
+        </button>
+      </div>
+      <p className="mt-1 text-sm text-[var(--color-text-secondary)]" aria-live="polite">
+        {saving ? 'Saving...' : done ? `Saved. Follow-up comments are ${on ? 'on' : 'off'}.` : on ? 'On' : 'Off'}
+      </p>
+      {problem && <p role="alert" className="mt-1 text-sm text-red-700">{problem}</p>}
+    </Card>
   )
 }
