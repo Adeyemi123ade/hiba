@@ -103,7 +103,9 @@ export function CapturePage() {
         setSavedText(idea.body)
         const sorted = [...idea.posts].sort((a, b) => order(a.platform) - order(b.platform))
         setPosts(sorted)
-        setTab(sorted[0]?.platform ?? 'linkedin')
+        // Opening one post from the Posts page (?platform=...) shows that post first.
+        const wanted = params.get('platform')
+        setTab(sorted.find((p) => p.platform === wanted)?.platform ?? sorted[0]?.platform ?? 'linkedin')
         setPhase(sorted.length ? 'drafts' : 'write')
       })
       .catch((e) => {
@@ -114,6 +116,8 @@ export function CapturePage() {
     return () => {
       cancelled = true
     }
+    // Only the idea and user decide when to load; the platform is read once at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ideaParam, userId])
 
   // Leaving the page within a second of typing: save the last edit straight away.
@@ -177,6 +181,7 @@ export function CapturePage() {
       setParams({ idea: id }, { replace: true })
       clearCaptureDraft(userId)
       queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+      queryClient.invalidateQueries({ queryKey: ['library'] })
     } catch (e) {
       setError(codeOf(e))
       setPhase('write')
@@ -255,6 +260,7 @@ export function CapturePage() {
       setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'approved' } : p)))
       setSaveState('saved')
       queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+      queryClient.invalidateQueries({ queryKey: ['library'] })
     } catch (e) {
       setError(codeOf(e))
     } finally {
@@ -288,6 +294,7 @@ export function CapturePage() {
     setCopied(null)
     queryClient.invalidateQueries({ queryKey: ['versions', active.id] })
     queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+    queryClient.invalidateQueries({ queryKey: ['library'] })
   }
 
   // HPD-49: rewrite every draft that is not approved yet from the chosen angle.
@@ -317,6 +324,7 @@ export function CapturePage() {
     setSaveState('saved')
     setCopied(null)
     queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+    queryClient.invalidateQueries({ queryKey: ['library'] })
   }
 
   async function copyActive() {
@@ -485,6 +493,7 @@ export function CapturePage() {
               onChange={(change) => {
                 setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, ...change } : p)))
                 queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+                queryClient.invalidateQueries({ queryKey: ['library'] })
               }}
             />
           )}
@@ -515,6 +524,7 @@ export function CapturePage() {
                   onPublished={(url) => {
                     setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'published', external_url: url } : p)))
                     queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+                    queryClient.invalidateQueries({ queryKey: ['library'] })
                   }}
                 />
               )}
