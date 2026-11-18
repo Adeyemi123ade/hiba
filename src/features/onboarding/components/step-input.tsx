@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Check, ClipboardPaste, Lock, Mic, Plus, Square, X } from 'lucide-react'
+import { Check, ClipboardPaste, Loader2, Lock, Mic, Plus, Square, X } from 'lucide-react'
 import clsx from 'clsx'
 import {
   CUSTOM_MAX, labelFor, readPrefs, sanitizeText, writePrefs, type OnboardingStep, type StepOption, type WorkingPrefs,
@@ -256,14 +256,17 @@ function TextEntry({ step, value, onChange, onSubmit }: Omit<StepInputProps, 'va
             <button
               type="button"
               onClick={speech.toggle}
+              disabled={speech.transcribing}
               aria-pressed={speech.listening}
               aria-label={speech.listening ? 'Stop recording' : 'Speak your answer'}
               className={clsx(
                 'flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] text-white',
                 speech.listening ? 'animate-pulse bg-red-500 hover:bg-red-600' : 'bg-[var(--color-primary)] hover:bg-[var(--color-primary-dark)]',
+                'disabled:opacity-60',
               )}
             >
-              {speech.listening ? <Square size={16} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
+              {speech.transcribing ? <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                : speech.listening ? <Square size={16} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
             </button>
           )}
           <button type="button" onClick={paste} aria-label="Paste from clipboard"
@@ -273,6 +276,11 @@ function TextEntry({ step, value, onChange, onSubmit }: Omit<StepInputProps, 'va
         </div>
       </div>
 
+      {speech.transcribing && (
+        <p role="status" className="mt-3 flex items-center gap-2 rounded-[var(--radius-lg)] bg-[var(--color-primary-soft)] px-4 py-3 text-sm text-[var(--color-primary-dark)]">
+          <Loader2 size={16} className="animate-spin" aria-hidden="true" /> Turning your voice into text... You can check and edit it after.
+        </p>
+      )}
       {speech.listening && (
         <div role="status" className="mt-3 flex items-center gap-3 rounded-[var(--radius-lg)] bg-[var(--color-primary-soft)] px-4 py-3 text-sm text-[var(--color-primary-dark)]">
           <span className="relative flex h-3 w-3 shrink-0">
@@ -289,7 +297,12 @@ function TextEntry({ step, value, onChange, onSubmit }: Omit<StepInputProps, 'va
         </div>
       )}
       {(speech.error || pasteError) && (
-        <p role="alert" className="mt-3 text-sm text-[var(--color-error)]">{speech.error ?? pasteError}</p>
+        <p role="alert" className="mt-3 text-sm text-red-700">
+          {speech.error ?? pasteError}{' '}
+          {speech.error && speech.canRetry && (
+            <button type="button" className="font-semibold underline" onClick={speech.retry}>Try again</button>
+          )}
+        </p>
       )}
 
       <div className="mt-3 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">

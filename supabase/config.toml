@@ -12,3 +12,6 @@ verify_jwt = true
 # It holds no secrets and only forwards the browser to an address listed in APP_ORIGINS.
 [functions.linkedin-callback]
 verify_jwt = false
+
+[functions.transcribe]
+verify_jwt = true
