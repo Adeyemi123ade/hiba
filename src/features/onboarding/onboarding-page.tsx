@@ -69,7 +69,15 @@ export function OnboardingPage() {
         /* storage unavailable: nothing to restore */
       }
     }
-    if (Object.keys(saved).length === 0) return
+    if (Object.keys(saved).length === 0) {
+      // New account: start "What should I call you?" with the first name given at sign-up.
+      // The person can still change it. (Email sign-up sends first_name, Google sends given_name.)
+      const meta = session?.user.user_metadata as Record<string, unknown> | undefined
+      const given = [profile.preferred_name, meta?.first_name, meta?.given_name]
+        .find((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      if (given) setAnswers({ preferredName: given.trim().slice(0, 60) })
+      return
+    }
     saved = normalizeAnswers(saved)
     setAnswers(saved)
     // Resume at the next unanswered required question, or at the summary when all are done.
@@ -80,7 +88,7 @@ export function OnboardingPage() {
     }
     setIndex(firstOpen)
     setPhase('steps')
-  }, [profile, resumed, draftKey])
+  }, [profile, resumed, draftKey, session])
 
   // Keep unsaved answers on this device so an expired session never costs the user their work.
   useEffect(() => {

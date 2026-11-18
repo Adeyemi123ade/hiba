@@ -11,11 +11,16 @@ import { TERMS_VERSION } from '@/lib/legal'
  * Do not swap verifyOtp for a magic-link session callback.
  */
 
-export async function registerWithEmail(email: string, password: string) {
+export async function registerWithEmail(
+  email: string,
+  password: string,
+  names: { firstName: string; lastName: string },
+) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { terms_version: TERMS_VERSION } },
+    // The database copies the names into the profile when the account is created (migration 0012).
+    options: { data: { terms_version: TERMS_VERSION, first_name: names.firstName, last_name: names.lastName } },
   })
   if (error) throw error
   // A session straight after sign-up means the server skipped email verification
