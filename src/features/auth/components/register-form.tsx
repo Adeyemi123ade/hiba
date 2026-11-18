@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { normalizeEmail, validateEmail } from '@/lib/email'
+import { NAME_MAX, cleanName, validateName } from '@/lib/person-name'
 import { validatePassword } from '@/lib/password'
 import { useOnline } from '@/features/onboarding/use-online'
 import { registerWithEmail } from '@/features/auth/api/auth-service'
@@ -14,10 +15,16 @@ interface RegisterFormProps {
   onRegistered: (email: string) => void
 }
 
-type Field = 'email' | 'password' | 'confirm'
+type Field = 'firstName' | 'lastName' | 'email' | 'password' | 'confirm'
+const FIELD_ORDER: Field[] = ['firstName', 'lastName', 'email', 'password', 'confirm']
+const FIELD_ID: Record<Field, string> = {
+  firstName: 'first-name', lastName: 'last-name', email: 'email', password: 'password', confirm: 'confirm-password',
+}
 
 /** HPD-26: registration, following the owner's design. Each problem is shown beside its field. */
 export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormProps) {
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -35,6 +42,8 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
     setError(null)
     const passwordProblem = validatePassword(password)
     const next: Partial<Record<Field, string>> = {
+      firstName: validateName(firstName, 'first name') ?? undefined,
+      lastName: validateName(lastName, 'surname') ?? undefined,
       email: validateEmail(email) ?? undefined,
       // The hint above lists what is missing; only the "too long" case needs its own words.
       password: passwordProblem
@@ -43,10 +52,10 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
       confirm: !confirm ? 'Please type your password again.' : confirm !== password ? 'The two passwords do not match.' : undefined,
     }
     setErrors(next)
-    const first = (['email', 'password', 'confirm'] as Field[]).find((f) => next[f])
+    const first = FIELD_ORDER.find((f) => next[f])
     if (!accepted) setTermsError('Please accept the Terms of Service and Privacy Policy to create an account.')
     if (first) {
-      document.getElementById(first === 'confirm' ? 'confirm-password' : first)?.focus()
+      document.getElementById(FIELD_ID[first])?.focus()
       return
     }
     if (!accepted) return
@@ -57,7 +66,7 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
     const cleanEmail = normalizeEmail(email)
     setIsSubmitting(true)
     try {
-      await registerWithEmail(cleanEmail, password)
+      await registerWithEmail(cleanEmail, password, { firstName: cleanName(firstName), lastName: cleanName(lastName) })
       onRegistered(cleanEmail)
     } catch (err) {
       setError(friendlyAuthError(err, 'Registration failed. Please try again.'))
@@ -68,6 +77,43 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
 
   return (
     <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <label htmlFor="first-name" className={authLabel}>First name</label>
+          <input
+            id="first-name"
+            type="text"
+            required
+            autoComplete="given-name"
+            autoCapitalize="words"
+            maxLength={NAME_MAX}
+            value={firstName}
+            aria-invalid={Boolean(errors.firstName) || undefined}
+            aria-describedby={errors.firstName ? 'first-name-error' : undefined}
+            onChange={(e) => { setFirstName(e.target.value); clear('firstName') }}
+            className={authInput}
+          />
+          {errors.firstName && <p id="first-name-error" role="alert" className={authFieldError}>{errors.firstName}</p>}
+        </div>
+        <div className="flex flex-col gap-2">
+          <label htmlFor="last-name" className={authLabel}>Surname</label>
+          <input
+            id="last-name"
+            type="text"
+            required
+            autoComplete="family-name"
+            autoCapitalize="words"
+            maxLength={NAME_MAX}
+            value={lastName}
+            aria-invalid={Boolean(errors.lastName) || undefined}
+            aria-describedby={errors.lastName ? 'last-name-error' : undefined}
+            onChange={(e) => { setLastName(e.target.value); clear('lastName') }}
+            className={authInput}
+          />
+          {errors.lastName && <p id="last-name-error" role="alert" className={authFieldError}>{errors.lastName}</p>}
+        </div>
+      </div>
+
       <div className="flex flex-col gap-2">
         <label htmlFor="email" className={authLabel}>Email address</label>
         <input
