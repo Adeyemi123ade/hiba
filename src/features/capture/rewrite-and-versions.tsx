@@ -192,7 +192,7 @@ export function VersionHistory({ post, readOnly, onUse }: {
                         )}
                       </span>
                     </div>
-                    {v.guidance && <p className="mt-1 text-xs italic text-[var(--color-text-secondary)]">You asked: {v.guidance}</p>}
+                    {v.guidance && <p className="mt-1 text-xs italic text-[var(--color-text-secondary)]">{v.guidance.startsWith('Angle: ') ? `Written from the angle: ${v.guidance.slice(7)}` : `You asked: ${v.guidance}`}</p>}
                     {showing && (
                       <div className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-[var(--radius-sm)] bg-[var(--color-surface)] p-2 text-[var(--color-text-primary)]">
                         {v.title && <strong className="block">{v.title}</strong>}

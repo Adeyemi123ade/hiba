@@ -1,7 +1,7 @@
 # How Hiba's content AI writes
 
 This is a plain-language description of everything the drafting AI is given and told.
-The source of truth is `index.ts` in this folder (`buildPrompt`, `WORD_LIMITS`, `callOpenAI`).
+The source of truth is `index.ts` in this folder (`buildPrompt`, `buildAnglePrompt`, `ANGLE_KINDS`, `WORD_LIMITS`).
 If you change the rules there, update this page in the same pull request.
 
 ## 1. What the AI knows about you (context)
@@ -52,7 +52,20 @@ When you ask for a new version of one draft, the AI also sees your current versi
 draft and, if you typed one, what you want changed (up to 300 characters). It must keep your
 meaning and facts. Your earlier versions are always kept under "Earlier versions".
 
-## 5. Safety and limits
+## 5. Angles (HPD-49)
+
+"Other ways to tell this idea" asks the AI for 3 angles at a time. The 8 angle types are:
+personal story, practical lesson, common mistake, opinion, beginner's guide, professional
+insight, question for your audience, and short motivational post.
+
+- The AI sees the same context as in section 1, plus the titles of angles you already have, so new ones are different.
+- Types you have not seen yet come first. After all 8, it starts again with fresh takes.
+- Each angle must stay true to your idea and use only its facts. If a type needs a detail you did not give (for example a personal story), the AI must say how to tell it with what you said, not make something up.
+- Each angle has a short title (under 80 characters) and a one or two sentence preview.
+- When you pick "Write my posts from this", all drafts that are not approved yet are written again from that angle, following every rule above. Approved, scheduled and published posts are never changed. Your earlier text stays under "Earlier versions", marked "Written from the angle: ...".
+- Angles stay linked to the idea. You can save them, discard them, or bring discarded ones back. Asking for angles counts toward the hourly limit below.
+
+## 6. Safety and limits
 
 - The OpenAI key stays on the server; your browser never sees it.
 - At most 20 drafting requests per person per hour.

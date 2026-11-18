@@ -87,6 +87,7 @@ const POST_COLUMNS =
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
   | 'offline' | 'session_expired' | 'not_found' | 'rate_limited' | 'not_configured' | 'ai_failed' | 'unknown'
+  | 'nothing_to_change'
 
 export class ContentError extends Error {
   readonly code: ContentErrorCode
@@ -124,21 +125,9 @@ export async function saveIdea(body: string, source: 'typed' | 'voice'): Promise
 
 export const GUIDANCE_MAX = 300
 
-/**
- * Writes drafts for an idea. With `platform`, only that draft is rewritten (HPD-50),
- * optionally following the person's guidance. Earlier text is kept as a version.
- */
-export async function generateDrafts(
-  ideaId: string,
-  rewrite?: { platform: Platform; guidance?: string },
-): Promise<Post[]> {
-  const body: Record<string, string> = { ideaId }
-  if (rewrite) {
-    body.platform = rewrite.platform
-    const guidance = rewrite.guidance ? cleanIdea(rewrite.guidance).slice(0, GUIDANCE_MAX) : ''
-    if (guidance) body.guidance = guidance
-  }
-  const { data, error } = await supabase.functions.invoke<{ posts: Post[] }>('generate-drafts', { body })
+/** Calls the drafting function and turns its errors into plain-language codes. */
+async function invokeDrafting<T>(body: Record<string, string>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke<T>('generate-drafts', { body })
   if (error) {
     if (error instanceof FunctionsHttpError) {
       const res = error.context as Response
@@ -152,13 +141,36 @@ export async function generateDrafts(
       if (code === 'rate_limited') throw new ContentError('rate_limited')
       if (code === 'not_configured') throw new ContentError('not_configured')
       if (code === 'not_found') throw new ContentError('not_found')
+      if (code === 'nothing_to_change') throw new ContentError('nothing_to_change')
       throw new ContentError('ai_failed')
     }
     // Function not deployed yet, network down, or blocked: treat by connectivity.
     if (typeof navigator !== 'undefined' && !navigator.onLine) throw new ContentError('offline')
     throw new ContentError('not_configured')
   }
-  return data?.posts ?? []
+  if (!data) throw new ContentError('ai_failed')
+  return data
+}
+
+/**
+ * Writes drafts for an idea. With `platform`, only that draft is rewritten (HPD-50),
+ * optionally following the person's guidance. With `angleId`, every draft that is not
+ * approved yet is written again from that angle (HPD-49). Earlier text is kept as a version.
+ */
+export async function generateDrafts(
+  ideaId: string,
+  options?: { platform: Platform; guidance?: string } | { angleId: string },
+): Promise<Post[]> {
+  const body: Record<string, string> = { ideaId }
+  if (options && 'angleId' in options) {
+    body.angleId = options.angleId
+  } else if (options) {
+    body.platform = options.platform
+    const guidance = options.guidance ? cleanIdea(options.guidance).slice(0, GUIDANCE_MAX) : ''
+    if (guidance) body.guidance = guidance
+  }
+  const data = await invokeDrafting<{ posts: Post[] }>(body)
+  return data.posts ?? []
 }
 
 export async function fetchIdea(ideaId: string): Promise<IdeaWithPosts> {
@@ -203,6 +215,7 @@ export const ERROR_TEXT: Record<ContentErrorCode, string> = {
   not_configured: 'Drafting is not switched on yet. Your idea is saved. Try again once it is set up.',
   ai_failed: 'We could not write your posts just now. Your idea is saved. Please try again.',
   unknown: 'Something went wrong. Your idea is kept on this page. Please try again.',
+  nothing_to_change: 'Every post for this idea is already approved, so there is nothing left to rewrite.',
 }
 
 export interface PostVersion {
@@ -240,4 +253,53 @@ export async function restoreVersion(post: Post, version: PostVersion, versions:
     if (error) throw toContentError(error)
   }
   await savePostBody(post.id, version.title, version.body)
+}
+
+/** HPD-49: the starting angle types, with the name shown on screen. */
+export const ANGLE_KINDS = {
+  personal_story: 'Personal story',
+  practical_lesson: 'Practical lesson',
+  common_mistake: 'Common mistake',
+  opinion: 'Opinion',
+  beginners_guide: "Beginner's guide",
+  professional_insight: 'Professional insight',
+  audience_question: 'Question for your audience',
+  motivational: 'Short motivational post',
+} as const
+export type AngleKind = keyof typeof ANGLE_KINDS
+export type AngleStatus = 'suggested' | 'saved' | 'chosen' | 'discarded'
+
+export interface Angle {
+  id: string
+  idea_id: string
+  kind: AngleKind
+  title: string
+  summary: string
+  status: AngleStatus
+  created_at: string
+}
+
+const ANGLE_COLUMNS = 'id, idea_id, kind, title, summary, status, created_at'
+
+/** Every angle for one idea, oldest first, including discarded ones (the screen hides those). */
+export async function fetchAngles(ideaId: string): Promise<Angle[]> {
+  const { data, error } = await supabase
+    .from('angles')
+    .select(ANGLE_COLUMNS)
+    .eq('idea_id', ideaId)
+    .order('created_at', { ascending: true })
+  if (error) throw toContentError(error)
+  return (data ?? []) as Angle[]
+}
+
+/** Asks Hiba for new angles (three at a time). Returns every angle for the idea. */
+export async function suggestAngles(ideaId: string): Promise<Angle[]> {
+  const data = await invokeDrafting<{ angles: Angle[] }>({ ideaId, mode: 'angles' })
+  return data.angles ?? []
+}
+
+/** Save for later, discard, or bring back an angle. Only the status can change. */
+export async function setAngleStatus(angleId: string, status: Exclude<AngleStatus, 'chosen'>): Promise<void> {
+  const { error } = await supabase.from('angles').update({ status }).eq('id', angleId)
+  if (error) throw toContentError(error)
 }
