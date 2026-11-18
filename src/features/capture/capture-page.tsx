@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useBlocker, useSearchParams } from 'react-router-dom'
+import { Link, useBlocker, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, Loader2, Mic, Square } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, Copy, Loader2, Mic, ShieldCheck, Square, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useSession } from '@/features/auth/use-session'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
@@ -14,10 +14,11 @@ import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versi
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { PostImage } from '@/features/capture/post-image'
 import { AnglesPanel } from '@/features/capture/angles-panel'
+import { DeletePostDialog } from '@/features/library/delete-post-dialog'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
   AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, lengthCheck, cleanIdea, fetchIdea, generateDrafts, saveIdea,
-  restoreVersion, savePostBody, type Angle, type ContentErrorCode, type Platform, type Post, type PostVersion,
+  restoreVersion, savePostBody, archivePost, restorePost, wasPublished, type Angle, type ContentErrorCode, type Platform, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
 
 type Phase = 'loading' | 'write' | 'working' | 'drafts'
@@ -66,6 +67,11 @@ export function CapturePage() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [approving, setApproving] = useState(false)
+  // HPD-57: archive, restore and permanent delete of the open post.
+  const [lifecycle, setLifecycle] = useState<{ busy: boolean; confirmScheduled: boolean; deleteOpen: boolean; message: string | null; error: string | null }>(
+    { busy: false, confirmScheduled: false, deleteOpen: false, message: null, error: null },
+  )
+  const navigate = useNavigate()
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // HPD-53: the edit waiting to be saved, so it is never dropped when the person leaves.
   const pending = useRef<Post | null>(null)
@@ -357,6 +363,62 @@ export function CapturePage() {
     queryClient.invalidateQueries({ queryKey: ['library'] })
   }
 
+  function lifecycleError(e: unknown) {
+    const code = codeOf(e)
+    return code === 'offline' ? 'You are offline. Reconnect, then try again.'
+      : code === 'session_expired' ? 'Your session expired. Sign in again, then try again.'
+        : code === 'not_found' ? 'This post has changed or was removed. Reload the page.'
+          : 'Something went wrong. Please try again.'
+  }
+
+  function refreshLists() {
+    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+    queryClient.invalidateQueries({ queryKey: ['library'] })
+  }
+
+  async function archiveActive() {
+    if (!active) return
+    setLifecycle((l) => ({ ...l, busy: true, error: null, message: null }))
+    try {
+      await saveNow()
+      await archivePost(active.id)
+      setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'archived', scheduled_for: null } : p)))
+      setLifecycle((l) => ({ ...l, busy: false, confirmScheduled: false,
+        message: wasPublished(active) ? 'Archived. It stays on LinkedIn; only Hiba hides it.' : 'Archived. It is hidden from your lists.' }))
+      refreshLists()
+    } catch (e) {
+      setLifecycle((l) => ({ ...l, busy: false, error: lifecycleError(e) }))
+    }
+  }
+
+  async function restoreActive() {
+    if (!active) return
+    setLifecycle((l) => ({ ...l, busy: true, error: null, message: null }))
+    try {
+      const back = await restorePost(active.id)
+      setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: back } : p)))
+      setLifecycle((l) => ({ ...l, busy: false, message: `Restored. It is back as ${STATUS_LABELS[back]}.` }))
+      refreshLists()
+    } catch (e) {
+      setLifecycle((l) => ({ ...l, busy: false, error: lifecycleError(e) }))
+    }
+  }
+
+  function afterDelete() {
+    if (!active) return
+    const text = wasPublished(active) ? 'Post deleted from Hiba for good. It is still on LinkedIn.' : 'Post deleted for good.'
+    const remaining = posts.filter((p) => p.id !== active.id)
+    refreshLists()
+    if (!remaining.length) {
+      clearCaptureDraft(userId)
+      navigate('/dashboard/library', { state: { notice: text } })
+      return
+    }
+    setPosts(remaining)
+    setTab(remaining[0].platform)
+    setLifecycle({ busy: false, confirmScheduled: false, deleteOpen: false, message: text, error: null })
+  }
+
   async function copyActive() {
     if (!active) return
     const content = active.title ? `${active.title}\n\n${active.body}` : active.body
@@ -457,6 +519,7 @@ export function CapturePage() {
                   setTab(p.platform)
                   setCopied(null)
                   setFieldError(null)
+                  setLifecycle({ busy: false, confirmScheduled: false, deleteOpen: false, message: null, error: null })
                 }}
                 className={clsx(
                   'flex items-center gap-1 rounded-full border px-4 py-1.5 text-sm',
@@ -539,10 +602,35 @@ export function CapturePage() {
                   {active.failure_reason || 'Publishing did not work. Copy the post and share it yourself, or try again later.'}
                 </p>
               )}
+              {active.status === 'archived' && (
+                <>
+                  <p className="mt-1 text-sm text-[var(--color-text-primary)]">
+                    It is hidden from your lists. Restore it to use it again, or delete it for good.
+                  </p>
+                  {active.external_url && (
+                    <p className="mt-2 flex gap-2 text-sm text-[var(--color-primary-dark)]">
+                      <ShieldCheck size={18} className="shrink-0" aria-hidden="true" />
+                      Your post is still on LinkedIn. Archiving or deleting it here never removes it there.
+                    </p>
+                  )}
+                </>
+              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 <button type="button" className={primaryBtn} onClick={copyActive}>
                   <Copy size={16} aria-hidden="true" /> Copy
                 </button>
+                {active.status === 'archived' && (
+                  <>
+                    <button type="button" className={outlineBtn} onClick={restoreActive} disabled={lifecycle.busy || !online}>
+                      {lifecycle.busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ArchiveRestore size={16} aria-hidden="true" />} Restore
+                    </button>
+                    <button type="button" disabled={lifecycle.busy || !online}
+                      onClick={() => setLifecycle((l) => ({ ...l, deleteOpen: true, message: null, error: null }))}
+                      className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] border border-red-700 px-4 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50">
+                      <Trash2 size={16} aria-hidden="true" /> Delete permanently
+                    </button>
+                  </>
+                )}
               </div>
               {active.platform === 'linkedin' && ideaId && (active.status === 'approved' || active.status === 'published') && (
                 <LinkedInPublishPanel
@@ -584,6 +672,43 @@ export function CapturePage() {
             </p>
           )}
           <VersionHistory post={active} readOnly={isApproved} onUse={switchVersion} />
+
+          {active.status !== 'archived' && (
+            <div className="mt-3 border-t border-[var(--color-border)] pt-3 text-sm">
+              {lifecycle.confirmScheduled ? (
+                <div className="rounded-[var(--radius-sm)] bg-amber-50 p-3 text-amber-900">
+                  Archiving cancels its scheduled time. If you restore it, it comes back as Approved with no time set.
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" className={outlineBtn} onClick={archiveActive} disabled={lifecycle.busy || !online}>Archive anyway</button>
+                    <button type="button" className="font-semibold underline" onClick={() => setLifecycle((l) => ({ ...l, confirmScheduled: false }))}>Keep it scheduled</button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" disabled={lifecycle.busy || !online}
+                  onClick={() => (active.status === 'scheduled' ? setLifecycle((l) => ({ ...l, confirmScheduled: true })) : archiveActive())}
+                  className="inline-flex items-center gap-1 font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-50">
+                  {lifecycle.busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Archive size={16} aria-hidden="true" />}
+                  Archive this post
+                </button>
+              )}
+              <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Hides it from your lists. You can restore it at any time.</p>
+            </div>
+          )}
+          {lifecycle.message && <p role="status" className="mt-2 text-sm text-[var(--color-primary-dark)]">{lifecycle.message}</p>}
+          {lifecycle.error && (
+            <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-sm text-red-700">
+              {lifecycle.error}
+              {lifecycle.error.startsWith('Your session expired') && <SignInAgainButton />}
+            </div>
+          )}
+          {lifecycle.deleteOpen && (
+            <DeletePostDialog
+              post={active}
+              online={online}
+              onClose={() => setLifecycle((l) => ({ ...l, deleteOpen: false }))}
+              onDeleted={afterDelete}
+            />
+          )}
         </Card>
 
         {ideaId && <AnglesPanel ideaId={ideaId} online={online} canRewrite={anyDraft} onChoose={writeFromAngle} />}
