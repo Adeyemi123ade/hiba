@@ -58,6 +58,8 @@ export function CapturePage() {
   const [fieldError, setFieldError] = useState<string | null>(null)
   const [limitNotice, setLimitNotice] = useState<string | null>(null)
   const [error, setError] = useState<ContentErrorCode | null>(null)
+  // The AI's question when an idea is too unclear to write about (owner rule: ask, do not guess).
+  const [clarify, setClarify] = useState<string | null>(null)
   const [slow, setSlow] = useState(false)
   const [posts, setPosts] = useState<Post[]>([])
   const [tab, setTab] = useState<Platform>('linkedin')
@@ -85,6 +87,11 @@ export function CapturePage() {
       })
     }, []),
   )
+
+  // After the AI asks a question, put the cursor in the idea box so the answer can be added straight away.
+  useEffect(() => {
+    if (clarify && phase === 'write') document.getElementById('idea')?.focus()
+  }, [clarify, phase])
 
   // Slow network while turning a recording into text: say so after 10 seconds.
   useEffect(() => {
@@ -173,6 +180,7 @@ export function CapturePage() {
       return
     }
     setHeardNotice(false)
+    setClarify(null)
     setFieldError(null)
     setError(null)
     setSlow(false)
@@ -198,6 +206,11 @@ export function CapturePage() {
       queryClient.invalidateQueries({ queryKey: ['home-posts'] })
       queryClient.invalidateQueries({ queryKey: ['library'] })
     } catch (e) {
+      if (e instanceof ContentError && e.code === 'needs_clarification' && e.detail) {
+        setClarify(e.detail)
+        setPhase('write')
+        return
+      }
       setError(codeOf(e))
       setPhase('write')
     } finally {
@@ -219,6 +232,7 @@ export function CapturePage() {
     setError(null)
     setFieldError(null)
     setLimitNotice(null)
+    setClarify(null)
     setSaveState('idle')
     setCopied(null)
     loadedIdea.current = null
@@ -591,6 +605,14 @@ export function CapturePage() {
     <div>
       <h1 className="mb-4 text-2xl font-bold text-[var(--color-text-primary)]">Capture</h1>
       {errorBanner}
+      {clarify && (
+        <Banner tone="info">
+          <span>
+            <span className="font-semibold">Before I write, one question: </span>{clarify}
+            <span className="mt-1 block">Add your answer to your idea below, then press Make my posts again. Your idea is saved.</span>
+          </span>
+        </Banner>
+      )}
 
       <Card className="flex flex-col items-center gap-3 py-8 text-center">
         {speech.supported ? (

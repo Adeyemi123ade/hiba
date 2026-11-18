@@ -87,13 +87,16 @@ const POST_COLUMNS =
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
   | 'offline' | 'session_expired' | 'not_found' | 'rate_limited' | 'not_configured' | 'ai_failed' | 'unknown'
-  | 'nothing_to_change'
+  | 'nothing_to_change' | 'needs_clarification'
 
 export class ContentError extends Error {
   readonly code: ContentErrorCode
-  constructor(code: ContentErrorCode) {
+  /** Extra text for the person, e.g. the AI's clarifying question. */
+  readonly detail: string | null
+  constructor(code: ContentErrorCode, detail: string | null = null) {
     super(code)
     this.code = code
+    this.detail = detail
   }
 }
 
@@ -132,12 +135,16 @@ async function invokeDrafting<T>(body: Record<string, string>): Promise<T> {
     if (error instanceof FunctionsHttpError) {
       const res = error.context as Response
       let code = ''
+      let question = ''
       try {
-        code = ((await res.json()) as { error?: string }).error ?? ''
+        const payload = (await res.json()) as { error?: string; question?: string }
+        code = payload.error ?? ''
+        question = typeof payload.question === 'string' ? payload.question.slice(0, 300) : ''
       } catch {
         // Body was not JSON; fall through to the status code.
       }
       if (res.status === 401 || code === 'unauthorized') throw new ContentError('session_expired')
+      if (code === 'needs_clarification' && question) throw new ContentError('needs_clarification', question)
       if (code === 'rate_limited') throw new ContentError('rate_limited')
       if (code === 'not_configured') throw new ContentError('not_configured')
       if (code === 'not_found') throw new ContentError('not_found')
@@ -215,6 +222,7 @@ export const ERROR_TEXT: Record<ContentErrorCode, string> = {
   not_configured: 'Drafting is not switched on yet. Your idea is saved. Try again once it is set up.',
   ai_failed: 'We could not write your posts just now. Your idea is saved. Please try again.',
   unknown: 'Something went wrong. Your idea is kept on this page. Please try again.',
+  needs_clarification: 'Before I write, I need to understand your main point a little better. Add a sentence to your idea, then try again.',
   nothing_to_change: 'Every post for this idea is already approved, so there is nothing left to rewrite.',
 }
 
