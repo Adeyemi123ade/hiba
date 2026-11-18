@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card'
 import { LinkedInConnectionCard } from '@/features/linkedin/linkedin-components'
 import { ProfileSettings } from '@/features/settings/profile-settings'
+import { NameSettings } from '@/features/settings/name-settings'
 
 const SECTIONS = [
   { id: 'settings-profile', label: 'Profile and preferences' },
@@ -24,6 +25,7 @@ export function SettingsPage() {
       </nav>
 
       <section id="settings-profile" aria-label="Profile and preferences" className="scroll-mt-4">
+        <NameSettings />
         <ProfileSettings />
       </section>
 
