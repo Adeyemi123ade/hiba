@@ -39,19 +39,24 @@ frequency or approval settings, or anything from other people.
 - Banned phrases: "In today's fast-paced world", "In this ever-evolving landscape", "Let's dive deep", "At the end of the day", "It is worth noting that", "Here's the thing", "The reality is simple", "What do you think?".
 - No hype, no stacked motivational lines, no emojis unless your writing sample uses them. Hiba also avoids em dashes, a common sign of AI writing (Hiba's addition).
 
-**Format (strict for LinkedIn and X)**
-- Prefer one sentence per paragraph, never more than two short sentences.
-- A blank line between paragraphs, one clear thought each, easy to read on a phone.
-- No headings, numbered lists or bullet points in ordinary posts.
+**Format for LinkedIn and X (your own layout, 18 Nov 2026)**
+- Short lines: one sentence each, never more than two short sentences.
+- A blank line between separate thoughts.
+- Related points or questions go on their own lines, one directly under the other, with **no blank line between them** and no bullets, dashes or numbers. A blank line before and after the group.
+- A lead-in line ending with a colon ("Here's what stood out to me:") is followed directly by the next line.
+- No headings, bullet symbols, numbering or bold.
+- The AI is shown a short layout example in this style (different words and topic, so it never copies your post).
+- If you gave a writing sample in onboarding, the AI copies its layout too: line breaks, grouping, spacing and ending.
+- Inside one X post: single line breaks only. A blank line is what separates posts in a thread.
 
 **Opening and ending**
 - A hook tied directly to the subject: a sharp question, a strong observation, a personal moment, or a defensible contrarian line. No clickbait.
-- End with a specific call to action that invites readers to share their own experience on this exact subject, never "What do you think?".
+- End with a specific question that invites readers to share their own experience on this exact subject, for example "Here's my question: ...". It may be followed by one short warm line ("I'd love to hear your thoughts.") and, if your idea thanks people or organisations, a thank-you line using only the names you gave. Never only a generic "What do you think?".
 - This is a guide, not a template: your idea decides whether a post is personal, educational, argumentative or reflective.
 
 **Three genuinely different versions:** the X thread and Substack article are written for their platform, never as cut-down copies of the LinkedIn post.
 
-**Automatic check:** after writing, Hiba checks for banned phrases, paragraphs that are too long (more than two sentences on LinkedIn and X, more than three on Substack), and a missing question at the end of the LinkedIn post. If anything is wrong, the AI is told exactly what and asked once more, and the better of the two attempts is kept. Tone and accuracy cannot be checked by a computer; you still review every post before approving it.
+**Automatic check:** after writing, Hiba checks for banned phrases, lines that are too long (more than two sentences on a line on LinkedIn and X, more than three sentences in a Substack paragraph), bullets or numbering, blank lines inside an X post, and a missing question near the end of the LinkedIn post. Your own post of 18 Nov 2026 passes every check (this is tested). If anything is wrong, the AI is told exactly what and asked once more, and the better of the two attempts is kept. Tone and accuracy cannot be checked by a computer; you still review every post before approving it.
 
 **Safety:** your idea, your sample and any change you ask for are treated as content to write about, never as instructions that can override these rules.
 
