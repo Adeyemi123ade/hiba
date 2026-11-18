@@ -77,27 +77,35 @@ export const BANNED_PHRASES = [
 ]
 
 const paragraphs = (text: string) => text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+const lines = (text: string) => text.split('\n').map((l) => l.trim()).filter(Boolean)
 export const countSentences = (text: string) =>
   text.replace(/\b(e\.g|i\.e|etc|vs|Mr|Mrs|Ms|Dr)\./gi, '$1').split(/(?<=[.!?])\s+/).filter((s) => /\w/.test(s)).length
 const isHashtagLine = (p: string) => /^(#\w+\s*)+$/.test(p)
+const isListLine = (l: string) => /^([-*•–]|\d+[.)])\s+/.test(l)
 
 /**
  * Checks the owner's writing rules that a computer can check reliably: banned phrases,
- * paragraph length, and a call to action at the end of the LinkedIn post. Returns problems in plain words.
+ * line length, no bullet lists, and a closing question on LinkedIn. Returns problems in plain words.
+ * LinkedIn and X are checked LINE by line (the owner stacks related one-line points with no blank
+ * line between them, so a block of six one-sentence questions is correct, not a long paragraph).
  */
 export function styleProblems(d: Drafts): string[] {
   const problems: string[] = []
   const all = [d.linkedin, ...d.x, d.substack.title, d.substack.body].join('\n').toLowerCase().replace(/[’‘]/g, "'")
   const used = BANNED_PHRASES.filter((b) => all.includes(b))
   if (used.length) problems.push(`it used banned phrases: ${used.map((b) => `"${b}"`).join(', ')}`)
-  const long = (text: string, max: number) => paragraphs(text).filter((p) => !isHashtagLine(p) && countSentences(p) > max).length
-  const li = long(d.linkedin, 2)
-  if (li) problems.push(`LinkedIn had ${li} paragraph(s) with more than two sentences`)
-  const x = d.x.reduce((n, post) => n + long(post, 2), 0)
-  if (x) problems.push(`the X thread had ${x} paragraph(s) with more than two sentences`)
-  const sb = long(d.substack.body, 3)
+  const longLines = (text: string) => lines(text).filter((l) => !isHashtagLine(l) && countSentences(l) > 2).length
+  const li = longLines(d.linkedin)
+  if (li) problems.push(`LinkedIn had ${li} line(s) with more than two sentences`)
+  const x = d.x.reduce((n, post) => n + longLines(post), 0)
+  if (x) problems.push(`the X thread had ${x} line(s) with more than two sentences`)
+  const bullets = [d.linkedin, ...d.x].reduce((n, t) => n + lines(t).filter(isListLine).length, 0)
+  if (bullets) problems.push('it used bullets, dashes or numbers at the start of lines; put each point on its own plain line instead')
+  if (d.x.some((post) => /\n\s*\n/.test(post.trim()))) problems.push('an X post contained a blank line; use single line breaks inside a post')
+  const sb = paragraphs(d.substack.body).filter((p) => countSentences(p) > 3).length
   if (sb) problems.push(`Substack had ${sb} paragraph(s) with more than three sentences`)
-  const ending = paragraphs(d.linkedin).filter((p) => !isHashtagLine(p)).slice(-2).join(' ')
+  // The closing question may be followed by a short invitation and a thank-you line.
+  const ending = paragraphs(d.linkedin).filter((p) => !isHashtagLine(p)).slice(-3).join(' ')
   if (!ending.includes('?')) problems.push('LinkedIn did not end with a specific question that invites readers to share')
   return problems
 }
@@ -252,20 +260,45 @@ export function buildPrompt(
     `- Never use these phrases or close variants: ${BANNED_PHRASES.map((b) => `"${b}"`).join(', ')}.`,
     '- No hype, no stacked motivational lines, no em dashes, no emojis unless their sample uses them.',
     '',
-    'FORMAT (strict for LinkedIn and X)',
-    '- Prefer ONE sentence per paragraph. Never more than TWO short sentences in a paragraph.',
-    '- Separate paragraphs with a blank line. One clear thought per paragraph. Easy to read on a phone.',
-    '- No headings, numbered lists or bullet points in ordinary posts unless the idea truly needs a short list.',
+    "FORMAT FOR LINKEDIN AND X (the owner's own layout: follow it closely)",
+    '- Write in short lines. Each line is ONE sentence, never more than TWO short sentences.',
+    '- Put a blank line between separate thoughts.',
+    '- When you list related points or questions, put each on its own line, directly under the previous one, with NO blank line between them and no bullets, dashes or numbers. Leave a blank line before and after that group.',
+    '- A lead-in line that ends with a colon (for example "Here\'s what stood out to me:") is followed directly by the next line, with no blank line.',
+    '- No headings, bullet symbols, numbering or bold.',
+    '- Layout example only. Do not copy its words or topic:',
+    '<layout>',
+    "Most product problems are not technical problems.",
+    '',
+    "That was my biggest takeaway from last week's customer visits.",
+    '',
+    'Three questions kept coming up:',
+    '',
+    'Why does onboarding take so long?',
+    'Who owns the data once it is imported?',
+    'What happens when the integration fails?',
+    '',
+    "Here's what stood out to me:",
+    'Users rarely ask for features.',
+    '',
+    'They describe the friction they live with every day.',
+    '',
+    "Here's my question: when did a customer conversation last change your roadmap?",
+    '',
+    "I'd love to hear your examples.",
+    '</layout>',
+    '- If they gave a writing sample, copy its layout closely: its line breaks, how it groups lines, its spacing and how it ends.',
     '',
     'OPENING AND ENDING',
     '- Open with a hook tied directly to the subject: a sharp question, a strong observation, a personal moment, or a defensible contrarian line. No clickbait, no generic hooks.',
-    '- Develop the idea, give the practical insight or lesson, then end with a specific call to action that invites readers to share their own experience or example on this exact subject.',
-    '- Never end with a generic question such as "What do you think?" or "Thoughts?".',
+    '- Develop the idea, give the practical insight or lesson, then end with a specific question that invites readers to share their own experience or example on this exact subject. It may start with a short lead-in such as "Here\'s my question:".',
+    '- After that question you may add one short warm line inviting replies (for example "I\'d love to hear your thoughts."). If their idea thanks or credits people or organisations, finish with that thank-you line, using only the names they gave.',
+    '- Never end with only a generic question such as "What do you think?" or "Thoughts?".',
     '- This is a guide, not a template: let the idea decide whether the post is personal, educational, argumentative or reflective.',
     '',
     'PLATFORMS (write three genuinely different versions, never a cut-down copy)',
     `- LinkedIn: at most ${WORD_LIMITS.linkedin} words (aim for 120 to 180). At most 3 relevant hashtags, on the last line, or none.`,
-    `- X: a thread of 1 to 4 posts, at most ${WORD_LIMITS.x} words in total, each post at most 270 characters, no hashtags. Each post must stand on its own.`,
+    `- X: a thread of 1 to 4 posts, at most ${WORD_LIMITS.x} words in total, each post at most 270 characters, no hashtags. Each post must stand on its own. Inside one X post use single line breaks only, never a blank line.`,
     `- Substack: a title under 80 characters and a body of 400 to ${WORD_LIMITS.substack} words: a clear opening, 2 to 4 short sections, a closing thought. Paragraphs of at most 3 sentences.`,
     '',
     'SAFETY',
@@ -281,7 +314,7 @@ export function buildPrompt(
 
   const user = [
     'About the person:', about,
-    sample ? `\nA post they wrote before, to copy their style:\n<sample>\n${sample}\n</sample>` : '',
+    sample ? `\nA post they wrote before. Copy its voice and its layout (line breaks, grouping, spacing, ending):\n<sample>\n${sample}\n</sample>` : '',
     `\nTheir idea:\n<idea>\n${idea}\n</idea>`,
     angle
       ? [
