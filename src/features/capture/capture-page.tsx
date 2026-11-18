@@ -71,10 +71,13 @@ export function CapturePage() {
   const pending = useRef<Post | null>(null)
   const loadedIdea = useRef<string | null>(null)
 
+  const [heardNotice, setHeardNotice] = useState(false)
+  const [voiceSlow, setVoiceSlow] = useState(false)
   const speech = useSpeechInput(
     useCallback((heard: string) => {
       setSource('voice')
       setFieldError(null)
+      setHeardNotice(true)
       setText((t) => {
         const joined = t.trim() ? `${t.trimEnd()} ${heard.trim()}` : heard.trim()
         if (joined.length > IDEA_MAX) {
@@ -89,6 +92,14 @@ export function CapturePage() {
   useEffect(() => {
     if (clarify && phase === 'write') document.getElementById('idea')?.focus()
   }, [clarify, phase])
+
+  // Slow network while turning a recording into text: say so after 10 seconds.
+  useEffect(() => {
+    setVoiceSlow(false)
+    if (!speech.transcribing) return
+    const t = setTimeout(() => setVoiceSlow(true), 10_000)
+    return () => clearTimeout(t)
+  }, [speech.transcribing])
 
   // Keep the idea on this device while the user works, so nothing is lost.
   useEffect(() => {
@@ -151,6 +162,10 @@ export function CapturePage() {
   const blocker = useBlocker(saveState === 'failed')
 
   async function makePosts() {
+    if (speech.listening || speech.transcribing) {
+      setFieldError('Finish your recording first: tap stop, then check the text below.')
+      return
+    }
     const clean = cleanIdea(text)
     if (!clean) {
       setFieldError('Tell me your idea first. Type it or tap the mic.')
@@ -164,7 +179,7 @@ export function CapturePage() {
       setError('offline')
       return
     }
-    speech.stop()
+    setHeardNotice(false)
     setClarify(null)
     setFieldError(null)
     setError(null)
@@ -206,7 +221,8 @@ export function CapturePage() {
   function startOver() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     flushSave()
-    speech.stop()
+    speech.cancel()
+    setHeardNotice(false)
     clearCaptureDraft(userId)
     setText('')
     setIdeaId(null)
@@ -604,7 +620,7 @@ export function CapturePage() {
             <button
               type="button"
               onClick={speech.toggle}
-              disabled={!online && !speech.listening}
+              disabled={speech.transcribing}
               aria-label={speech.listening ? 'Stop recording' : 'Start recording'}
               className={clsx(
                 'flex h-24 w-24 items-center justify-center rounded-full text-white transition-colors disabled:opacity-50',
@@ -613,30 +629,39 @@ export function CapturePage() {
                   : 'bg-[var(--color-primary)] shadow-[0_0_0_10px_var(--color-primary-soft)]',
               )}
             >
-              {speech.listening ? <Square size={30} aria-hidden="true" /> : <Mic size={38} aria-hidden="true" />}
+              {speech.transcribing ? <Loader2 size={34} className="animate-spin" aria-hidden="true" />
+                : speech.listening ? <Square size={30} aria-hidden="true" /> : <Mic size={38} aria-hidden="true" />}
             </button>
             <h2 className="mt-2 text-lg font-semibold text-[var(--color-text-primary)]">
-              {speech.listening ? 'Listening... tap to stop' : 'Tap and talk'}
+              {speech.listening ? 'Recording... tap to stop' : speech.transcribing ? 'Turning your voice into text...' : 'Tap and talk'}
             </h2>
-            {speech.listening && (
-              <p role="status" className="min-h-6 max-w-md text-sm italic text-[var(--color-text-secondary)]">
-                {speech.interim || 'Go ahead, I am listening.'}
+            {(speech.listening || speech.transcribing) && (
+              <p role="status" className="min-h-6 max-w-md text-sm text-[var(--color-text-secondary)]">
+                {speech.transcribing && voiceSlow ? 'Still working. Your connection seems slow, please keep this page open.' : speech.interim}
               </p>
             )}
-            {!online && !speech.listening && (
-              <p className="text-sm text-[var(--color-text-secondary)]">Voice needs an internet connection. You can still type below.</p>
+            {!speech.listening && !speech.transcribing && !speech.error && (
+              <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
+                Speak naturally for up to 5 minutes. You can check and fix the text before anything is written.
+              </p>
+            )}
+            {!online && !speech.listening && !speech.transcribing && (
+              <p className="text-sm text-[var(--color-text-secondary)]">You are offline. You can record now and send it once you reconnect, or type below.</p>
             )}
             {speech.error && (
-              <p role="alert" className="max-w-md text-sm text-[var(--color-error)]">
-                {speech.error} You can also type your idea below.
-              </p>
+              <div role="alert" className="flex max-w-md flex-col items-center gap-2 text-sm text-red-700">
+                <p>{speech.error} You can also type your idea below.</p>
+                {speech.canRetry && (
+                  <button type="button" className={outlineBtn} onClick={speech.retry} disabled={!online}>Try again</button>
+                )}
+              </div>
             )}
           </>
         ) : (
           <>
             <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Type your idea below</h2>
             <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
-              Voice works in Chrome, Edge and Safari. In this browser, please type instead.
+              Voice recording does not work in this browser. Please type instead, or use Chrome, Edge or Safari.
             </p>
           </>
         )}
@@ -644,8 +669,13 @@ export function CapturePage() {
 
       <Card>
         <label htmlFor="idea" className="mb-2 block text-lg font-semibold text-[var(--color-text-primary)]">
-          {speech.supported ? 'Or type your idea' : 'Your idea'}
+          {speech.supported ? (heardNotice ? 'Your idea' : 'Or type your idea') : 'Your idea'}
         </label>
+        {heardNotice && (
+          <p role="status" className="mb-2 rounded-[var(--radius-sm)] bg-[var(--color-primary-soft)] px-3 py-2 text-sm text-[var(--color-primary-dark)]">
+            Here is what I heard. Please read it and fix anything I got wrong before making your posts.
+          </p>
+        )}
         <textarea
           id="idea"
           value={text}
