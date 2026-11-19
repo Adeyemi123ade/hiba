@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { ContentError, ERROR_TEXT, type ContentErrorCode, type PostStatus } from '@/features/content/api/content-service'
 import {
-  COMMENTS_MAX, COMMENTS_MIN, COMMENT_MAX_CHARS, approveComments, deleteComment, fetchComments, generateComments,
+  COMMENTS_MAX, COMMENTS_MIN, COMMENT_MAX_CHARS, approveComments, draftingFunctionIsCurrent, deleteComment, fetchComments, generateComments,
   randomGapMs, rewriteComment, saveOrder, updateComment, withdrawApproval, type PostComment,
 } from '@/features/content/api/comments-service'
 import { LINKEDIN_ERROR_TEXT, LinkedInError, postLinkedInComment } from '@/features/linkedin/linkedin-service'
@@ -62,6 +62,9 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   const queryClient = useQueryClient()
   const key = ['comments', postId]
   const query = useQuery({ queryKey: key, queryFn: () => fetchComments(postId), enabled, retry: 1 })
+  // Is the writing service on the server new enough to write comments? Asked once per visit.
+  const fnCheck = useQuery({ queryKey: ['drafting-function-current'], queryFn: draftingFunctionIsCurrent, enabled, retry: false, staleTime: Infinity })
+  const outdated = fnCheck.data === false
   const [count, setCount] = useState(COMMENTS_MIN)
   const [working, setWorking] = useState<'all' | string | null>(null)
   const [slow, setSlow] = useState(false)
@@ -340,6 +343,12 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       </p>
 
       {!online && <p role="status" className="mt-3 text-sm text-amber-800">You are offline. Your comments are shown, but changes and posting need a connection.</p>}
+      {outdated && (
+        <div role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-red-50 p-3 text-sm text-red-800">
+          <p className="font-semibold">Hiba cannot write comments yet: its writing service on the server is out of date.</p>
+          <p className="mt-1">To fix it, redeploy the <span className="font-mono">generate-drafts</span> function in Supabase (Verify JWT on), then reload this page. Comments you already have are still shown below and can still be approved and posted.</p>
+        </div>
+      )}
 
       {query.isPending && (
         <div className="mt-4 space-y-3" role="status" aria-label="Loading comments">
@@ -356,7 +365,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       {query.isSuccess && comments.length === 0 && working !== 'all' && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {countPicker}
-          <button type="button" className={primaryBtn} onClick={writeAll} disabled={!online || busy}>Write follow-up comments</button>
+          <button type="button" className={primaryBtn} onClick={writeAll} disabled={!online || busy || outdated}>Write follow-up comments</button>
         </div>
       )}
 
@@ -387,7 +396,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
           {!published && queue.length > 0 && runner !== 'paused' && (
             <p className="mt-1 text-[var(--color-text-primary)]">These are posted automatically after you post this to LinkedIn from Hiba.</p>
           )}
-          {runner === 'done' && postUrl && (
+          {(runner === 'done' || (postedCount > 0 && !sequenceActive)) && postUrl && (
             <p className="mt-1"><a href={postUrl} target="_blank" rel="noopener noreferrer" className="font-semibold underline">See your post and comments on LinkedIn</a></p>
           )}
           <div className="mt-2 flex flex-wrap gap-2">
@@ -486,7 +495,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
                         {!locked && (
                           <>
                             <button type="button" className={iconBtn} onClick={() => { setEditing({ id: c.id, text: c.body }); setNotice(null) }} disabled={!online || busy}><Pencil size={14} aria-hidden="true" /> Edit</button>
-                            <button type="button" className={iconBtn} onClick={() => rewriteOne(c)} disabled={!online || busy}><RefreshCw size={14} aria-hidden="true" /> Write again</button>
+                            <button type="button" className={iconBtn} onClick={() => rewriteOne(c)} disabled={!online || busy || outdated}><RefreshCw size={14} aria-hidden="true" /> Write again</button>
                             <button type="button" className={clsx(iconBtn, 'text-red-700 hover:text-red-800')} onClick={() => setConfirmDelete(c.id)} disabled={!online || busy}><Trash2 size={14} aria-hidden="true" /> Delete</button>
                           </>
                         )}
@@ -510,13 +519,13 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
             {!anyLocked && (confirmReplace ? (
               <span className="flex flex-wrap items-center gap-2 text-sm text-[var(--color-text-primary)]">
                 This replaces all {comments.length} comments, including your edits.
-                <button type="button" className={outlineBtn} onClick={writeAll} disabled={!online || busy}>Yes, write new ones</button>
+                <button type="button" className={outlineBtn} onClick={writeAll} disabled={!online || busy || outdated}>Yes, write new ones</button>
                 <button type="button" className="font-semibold underline" onClick={() => setConfirmReplace(false)}>Keep these</button>
               </span>
             ) : (
               <>
                 {countPicker}
-                <button type="button" className={outlineBtn} onClick={() => setConfirmReplace(true)} disabled={!online || busy}>
+                <button type="button" className={outlineBtn} onClick={() => setConfirmReplace(true)} disabled={!online || busy || outdated}>
                   <RefreshCw size={14} aria-hidden="true" /> Write all again
                 </button>
               </>

@@ -750,6 +750,13 @@ async function loadVoice(db: any, key: string, userId: string, profile: Record<s
   return { stats, description, examples }
 }
 
+/**
+ * What this deployed copy can do. The app asks first (mode "info"), so an out-of-date copy on the
+ * server is reported plainly instead of failing silently. Raise it when a feature the app needs is added.
+ */
+const FUNCTION_VERSION = 2
+const FEATURES = ['comments', 'comment-status', 'voice']
+
 Deno.serve(async (req) => withOrigin(await handle(req), req.headers.get('origin')))
 
 async function handle(req: Request): Promise<Response> {
@@ -770,6 +777,7 @@ async function handle(req: Request): Promise<Response> {
   let commentCount = COMMENTS_MIN
   try {
     const input = await req.json()
+    if (input?.mode === 'info') return reply(200, { version: FUNCTION_VERSION, features: FEATURES })
     ideaId = str(input?.ideaId, 64)
     if (input?.mode !== undefined && !['angles', 'comments', 'comment'].includes(input.mode)) return fail(400, 'bad_request')
     wantAngles = input?.mode === 'angles'
