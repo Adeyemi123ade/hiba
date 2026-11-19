@@ -17,9 +17,21 @@ const OPENAI_TIMEOUT_MS = 45_000
 const MODEL = Deno.env.get('OPENAI_MODEL') ?? 'gpt-4o-mini'
 
 const cors = {
-  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') ?? '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+// Only Hiba's own addresses may call this from a browser (secret APP_ORIGINS, comma-separated,
+// the same one LinkedIn sign-in uses). If it is not set, any address is allowed, as before.
+// Every request also needs the person's login token, so this is an extra layer, not the only one.
+const CORS_ORIGINS = (Deno.env.get('APP_ORIGINS') ?? Deno.env.get('ALLOWED_ORIGIN') ?? '')
+  .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean)
+function withOrigin(res: Response, origin: string | null): Response {
+  const headers = new Headers(res.headers)
+  headers.set('Access-Control-Allow-Origin',
+    !CORS_ORIGINS.length ? '*' : origin && CORS_ORIGINS.includes(origin) ? origin : CORS_ORIGINS[0])
+  headers.set('Vary', 'Origin')
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
 }
 
 type ErrorCode =
@@ -745,7 +757,9 @@ async function loadVoice(db: any, key: string, userId: string, profile: Record<s
 const FUNCTION_VERSION = 2
 const FEATURES = ['comments', 'comment-status', 'voice']
 
-Deno.serve(async (req) => {
+Deno.serve(async (req) => withOrigin(await handle(req), req.headers.get('origin')))
+
+async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return fail(405, 'bad_request')
 
@@ -1029,4 +1043,4 @@ Deno.serve(async (req) => {
     .eq('idea_id', ideaId)
   if (postsError) return fail(500, 'server_error')
   return reply(200, { posts })
-})
+}

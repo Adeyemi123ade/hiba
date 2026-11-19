@@ -5,7 +5,7 @@ export function LandingPage() {
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-bg-cream)]">
       <h1 className="text-3xl font-semibold text-[var(--color-text-primary)]">Hiba</h1>
       <p className="max-w-md text-center text-[var(--color-text-secondary)]">
-        AI Personal Brand Operating System — placeholder landing page.
+        Capture your ideas by voice or text. Hiba turns them into LinkedIn, X and Substack posts that sound like you.
       </p>
       <Link
         to="/auth"

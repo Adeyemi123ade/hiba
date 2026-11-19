@@ -172,7 +172,7 @@ export function DashboardHomePage() {
                 Ready to publish ({readyCount} {readyCount === 1 ? 'post' : 'posts'})
               </h2>
               <p className="mb-2 text-sm text-[var(--color-text-secondary)]">
-                Copy these and post them yourself until you connect your accounts.
+                Open one to post it to LinkedIn. For X and Substack, copy the text and post it yourself.
               </p>
               <ul>
                 {approved.map(([id, list]) => <IdeaRow key={id} ideaId={id} posts={list} action="Open" />)}
