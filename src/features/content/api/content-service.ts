@@ -1,6 +1,6 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { IMAGE_BUCKET } from '@/features/content/api/image-service'
+import { IMAGE_BUCKET, imagesOf, type PostImageItem } from '@/features/content/api/image-service'
 
 export type Platform = 'linkedin' | 'x' | 'substack'
 export type PostStatus =
@@ -32,6 +32,8 @@ export interface Post {
   external_url?: string | null
   image_path?: string | null
   image_alt?: string | null
+  /** Every image on the post, in order (the first is also in image_path / image_alt). */
+  images?: PostImageItem[] | null
   /** What the post was before it was archived (HPD-57). Only on the Posts page. */
   archived_from?: PostStatus | null
   archived_at?: string | null
@@ -86,7 +88,7 @@ export function lengthCheck(platform: Platform, body: string): { text: string; w
 }
 
 const POST_COLUMNS =
-  'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, updated_at'
+  'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, images, updated_at'
 
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
@@ -354,8 +356,11 @@ export const DELETE_WORD = 'DELETE'
  */
 export async function deletePostForever(post: Pick<Post, 'id' | 'image_path'>): Promise<void> {
   if (offlineNow()) throw new ContentError('offline')
-  if (post.image_path) {
-    const { error } = await supabase.storage.from(IMAGE_BUCKET).remove([post.image_path])
+  // Every image on the post, not only the first one the Posts page knows about.
+  const { data: row } = await supabase.from('posts').select('images').eq('id', post.id).maybeSingle()
+  const paths = [...new Set([...imagesOf({ images: row?.images as PostImageItem[] | null }).map((i) => i.path), ...(post.image_path ? [post.image_path] : [])])]
+  if (paths.length) {
+    const { error } = await supabase.storage.from(IMAGE_BUCKET).remove(paths)
     if (error) throw offlineNow() ? new ContentError('offline') : new ContentError('image_delete_failed')
   }
   const { data, error } = await supabase.from('posts').delete().eq('id', post.id).eq('status', 'archived').select('id')

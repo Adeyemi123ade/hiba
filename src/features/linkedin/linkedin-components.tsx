@@ -8,7 +8,7 @@ import {
   LINKEDIN_ERROR_TEXT, LinkedInError, disconnectLinkedIn, isExpired, linkedInFunctionIsCurrent, publishToLinkedIn,
   startLinkedInConnect, type LinkedInErrorCode,
 } from '@/features/linkedin/linkedin-service'
-import { imagePreviewUrl } from '@/features/content/api/image-service'
+import { imagePreviewUrl, type PostImageItem } from '@/features/content/api/image-service'
 import { fetchComments, type PostComment } from '@/features/content/api/comments-service'
 
 const primaryBtn =
@@ -144,14 +144,14 @@ export function LinkedInConnectionCard() {
 /** What the preview shows before anything is posted (owner's master prompt, section 13). */
 interface Preview {
   current: boolean
-  imageUrl: string | null
-  imageFailed: boolean
+  /** A private preview link per image, in order; null where it could not load. */
+  imageUrls: (string | null)[]
   approved: PostComment[]
   notApproved: number
   commentsFailed: boolean
 }
 
-export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished, text, imagePath, imageAlt, followUps }: {
+export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished, text, images, followUps }: {
   postId: string
   ideaId: string
   publishedUrl: string | null
@@ -159,8 +159,8 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   onPublished: (url: string | null) => void
   /** The exact post text, shown in the preview. */
   text: string
-  imagePath: string | null
-  imageAlt: string | null
+  /** Every image on the post, in order. All of them are posted together with the text. */
+  images: PostImageItem[]
   /** Whether follow-up comments are switched on in Settings. */
   followUps: boolean
 }) {
@@ -203,7 +203,8 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
       const res = await publishToLinkedIn(postId)
       setWarning(Boolean(res.warning))
       // Belt and braces: the server says whether the image went with the post.
-      setImageMissing(Boolean(imagePath) && res.image !== true)
+      const sent = typeof res.images === 'number' ? res.images : res.image ? 1 : 0
+      setImageMissing(sent < images.length)
       setConfirming(false)
       setPreview(null)
       onPublished(res.url)
@@ -227,15 +228,14 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
     setChecking(true)
     setError(null)
     try {
-      const [current, image, comments] = await Promise.all([
-        linkedInFunctionIsCurrent(),
-        imagePath ? imagePreviewUrl(imagePath).then((url) => ({ url, failed: false })).catch(() => ({ url: null, failed: true })) : Promise.resolve({ url: null, failed: false }),
+      const [current, imageUrls, comments] = await Promise.all([
+        linkedInFunctionIsCurrent(images.length),
+        Promise.all(images.map((img) => imagePreviewUrl(img.path).catch(() => null))),
         followUps ? fetchComments(postId).then((list) => ({ list, failed: false })).catch(() => ({ list: [] as PostComment[], failed: true })) : Promise.resolve({ list: [] as PostComment[], failed: false }),
       ])
       setPreview({
         current,
-        imageUrl: image.url,
-        imageFailed: image.failed,
+        imageUrls,
         approved: comments.list.filter((cm) => cm.included && cm.status === 'approved'),
         notApproved: comments.list.filter((cm) => cm.included && cm.status === 'draft').length,
         commentsFailed: comments.failed,
@@ -285,7 +285,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
         <div role="alert" className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           <p className="font-semibold">Hiba cannot post right now.</p>
           <p className="mt-1">
-            The LinkedIn function in Supabase is out of date. It would post your text without the image and could not post comments,
+            The LinkedIn function in Supabase is out of date. It could post your text without all of its images or fail to post comments,
             so nothing was posted. In Supabase, go to Edge Functions, redeploy <strong>linkedin</strong> with Verify JWT on, then try again.
           </p>
           <button type="button" className={`${outlineBtn} mt-2`} onClick={() => { setConfirming(false); setPreview(null) }}>OK</button>
@@ -297,14 +297,23 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
           </p>
           <div className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white p-3">
             <p className="whitespace-pre-line break-words text-sm text-[var(--color-text-primary)]">{text}</p>
-            {imagePath && preview.imageUrl && (
-              <img src={preview.imageUrl} alt={imageAlt || 'Image attached to this post'} className="mt-3 max-h-72 w-full rounded-[var(--radius-sm)] object-cover" />
-            )}
-            {imagePath && !preview.imageUrl && (
-              <p className="mt-3 text-xs text-[var(--color-text-secondary)]">An image is attached{preview.imageFailed ? ', but its preview could not load here' : ''}. It is posted with the text.</p>
+            {images.length > 0 && (
+              <div className={`mt-3 grid gap-1 ${images.length === 1 ? 'grid-cols-1' : images.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                {images.map((img, i) => preview.imageUrls[i] ? (
+                  <img key={img.path} src={preview.imageUrls[i]!} alt={img.alt || `Image ${i + 1} attached to this post`}
+                    className={`${images.length === 1 ? 'max-h-72' : 'h-28'} w-full rounded-[var(--radius-sm)] object-cover`} />
+                ) : (
+                  <span key={img.path} className="flex h-28 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-bg-soft-green)] px-1 text-center text-xs text-[var(--color-text-secondary)]">
+                    Image {i + 1}: preview could not load, it is still posted
+                  </span>
+                ))}
+              </div>
             )}
           </div>
-          {!imagePath && (
+          {images.length > 1 && (
+            <p className="mt-2 text-xs text-[var(--color-text-secondary)]">All {images.length} images go out together as one post, in this order.</p>
+          )}
+          {!images.length && (
             <p className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
               No image attached. Posts with an image usually get much more attention. You can add one above, or post without it.
             </p>
