@@ -91,7 +91,7 @@ const POST_COLUMNS =
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
   | 'offline' | 'session_expired' | 'not_found' | 'rate_limited' | 'not_configured' | 'ai_failed' | 'unknown'
-  | 'nothing_to_change' | 'needs_clarification' | 'image_delete_failed'
+  | 'nothing_to_change' | 'needs_clarification' | 'image_delete_failed' | 'outdated'
 
 export class ContentError extends Error {
   readonly code: ContentErrorCode
@@ -229,6 +229,7 @@ export const ERROR_TEXT: Record<ContentErrorCode, string> = {
   needs_clarification: 'Before I write, I need to understand your main point a little better. Add a sentence to your idea, then try again.',
   nothing_to_change: 'Every post for this idea is already approved, so there is nothing left to rewrite.',
   image_delete_failed: 'We could not delete the image, so nothing was deleted. Please try again.',
+  outdated: 'Hiba\'s writing service on the server is out of date, so nothing was changed. To fix it, redeploy the generate-drafts function in Supabase (Verify JWT on), then try again.',
 }
 
 export interface PostVersion {

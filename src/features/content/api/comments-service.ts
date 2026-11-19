@@ -55,16 +55,41 @@ async function savedOr(postId: string, sent: PostComment[]): Promise<PostComment
   }
 }
 
+/**
+ * Asks the deployed drafting function what it can do. An out-of-date copy does not know "info"
+ * and refuses it, which reads as "not current". Offline and expired sessions still throw.
+ * A "yes" is remembered for this visit.
+ */
+let currentConfirmed = false
+export async function draftingFunctionIsCurrent(): Promise<boolean> {
+  if (currentConfirmed) return true
+  try {
+    const info = await invokeDrafting<{ features?: unknown }>({ mode: 'info' })
+    const features = Array.isArray(info?.features) ? info.features : []
+    currentConfirmed = features.includes('comments') && features.includes('comment-status')
+    return currentConfirmed
+  } catch (e) {
+    if (e instanceof ContentError && (e.code === 'ai_failed' || e.code === 'not_found')) return false
+    throw e
+  }
+}
+
+/** A reply with no list of comments means the server copy does not know how to write them. */
+function listFrom(data: { comments?: unknown }): PostComment[] {
+  if (!Array.isArray(data?.comments)) throw new ContentError('outdated')
+  return data.comments as PostComment[]
+}
+
 /** Writes `count` comments for the post. Replaces any earlier comments for it. */
 export async function generateComments(ideaId: string, postId: string, count: number): Promise<PostComment[]> {
-  const data = await invokeDrafting<{ comments: PostComment[] }>({ ideaId, mode: 'comments', postId, count: String(count) })
-  return savedOr(postId, data.comments ?? [])
+  const data = await invokeDrafting<{ comments?: unknown }>({ ideaId, mode: 'comments', postId, count: String(count) })
+  return savedOr(postId, listFrom(data))
 }
 
 /** Writes one comment again, keeping the others. */
 export async function rewriteComment(ideaId: string, commentId: string): Promise<PostComment[]> {
-  const data = await invokeDrafting<{ comments: PostComment[] }>({ ideaId, mode: 'comment', commentId })
-  const sent = data.comments ?? []
+  const data = await invokeDrafting<{ comments?: unknown }>({ ideaId, mode: 'comment', commentId })
+  const sent = listFrom(data)
   return sent[0]?.post_id ? savedOr(sent[0].post_id, sent) : byPosition(sent)
 }
 
