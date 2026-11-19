@@ -121,10 +121,26 @@ export function disconnectLinkedIn() {
 }
 
 export function publishToLinkedIn(postId: string) {
-  return call<{ published: true; url: string | null; warning?: string }>({ action: 'publish', postId })
+  return call<{ published: true; url: string | null; warning?: string; image?: boolean }>({ action: 'publish', postId })
 }
 
 /** Posts ONE approved follow-up comment under the person's published LinkedIn post. */
 export async function postLinkedInComment(commentId: string): Promise<void> {
   await call<{ published: boolean }>({ action: 'comment', commentId })
+}
+
+/**
+ * Checks the LinkedIn function on the server is up to date (it can send images and post comments).
+ * An older copy answers "bad request" to this check: then the app must not post, because the old
+ * copy would publish the text without the image and could not post comments.
+ * Returns true when up to date, false when out of date. Other problems (offline, session) throw.
+ */
+export async function linkedInFunctionIsCurrent(): Promise<boolean> {
+  try {
+    const info = await call<{ version?: number; features?: string[] }>({ action: 'info' })
+    return Boolean(info?.features?.includes('images') && info.features.includes('comments'))
+  } catch (e) {
+    if (e instanceof LinkedInError && e.code === 'unknown') return false
+    throw e
+  }
 }

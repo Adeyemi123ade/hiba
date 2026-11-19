@@ -5,9 +5,11 @@ import { useLinkedInNotice } from '@/features/linkedin/use-linkedin-notice'
 import { ExternalLink, Loader2, Send } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import {
-  LINKEDIN_ERROR_TEXT, LinkedInError, disconnectLinkedIn, isExpired, publishToLinkedIn,
+  LINKEDIN_ERROR_TEXT, LinkedInError, disconnectLinkedIn, isExpired, linkedInFunctionIsCurrent, publishToLinkedIn,
   startLinkedInConnect, type LinkedInErrorCode,
 } from '@/features/linkedin/linkedin-service'
+import { imagePreviewUrl } from '@/features/content/api/image-service'
+import { fetchComments, type PostComment } from '@/features/content/api/comments-service'
 
 const primaryBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50'
@@ -139,13 +141,28 @@ export function LinkedInConnectionCard() {
 }
 
 /** HPD-71 (post now): publish an approved LinkedIn draft, after a clear confirmation. */
-export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, hasImage, onPublished }: {
+/** What the preview shows before anything is posted (owner's master prompt, section 13). */
+interface Preview {
+  current: boolean
+  imageUrl: string | null
+  imageFailed: boolean
+  approved: PostComment[]
+  notApproved: number
+  commentsFailed: boolean
+}
+
+export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished, text, imagePath, imageAlt, followUps }: {
   postId: string
   ideaId: string
   publishedUrl: string | null
   isPublished: boolean
-  hasImage: boolean
   onPublished: (url: string | null) => void
+  /** The exact post text, shown in the preview. */
+  text: string
+  imagePath: string | null
+  imageAlt: string | null
+  /** Whether follow-up comments are switched on in Settings. */
+  followUps: boolean
 }) {
   const connection = useLinkedInConnection()
   const { busy: connecting, error: connectError, connect } = useConnectAction(`/dashboard/capture?idea=${ideaId}`)
@@ -154,6 +171,9 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   const [slow, setSlow] = useState(false)
   const [error, setError] = useState<{ code: LinkedInErrorCode; detail?: string } | null>(null)
   const [warning, setWarning] = useState(false)
+  const [preview, setPreview] = useState<Preview | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [imageMissing, setImageMissing] = useState(false)
 
   if (isPublished) {
     return (
@@ -165,6 +185,11 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
           </a>
         )}
         {warning && <span className="text-xs text-amber-800">It is live on LinkedIn, but Hiba could not update its status. Refresh to see it.</span>}
+        {imageMissing && (
+          <span role="alert" className="text-xs text-red-700">
+            LinkedIn reported the post went out without its image. Please tell us, and check the post on LinkedIn.
+          </span>
+        )}
       </div>
     )
   }
@@ -177,7 +202,10 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
     try {
       const res = await publishToLinkedIn(postId)
       setWarning(Boolean(res.warning))
+      // Belt and braces: the server says whether the image went with the post.
+      setImageMissing(Boolean(imagePath) && res.image !== true)
       setConfirming(false)
+      setPreview(null)
       onPublished(res.url)
     } catch (e) {
       const err = e instanceof LinkedInError ? { code: e.code, detail: e.detail } : { code: 'unknown' as const }
@@ -190,6 +218,33 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
     } finally {
       clearTimeout(timer)
       setPublishing(false)
+    }
+  }
+
+  // Before anything is posted: check the server function is up to date, and gather the image and
+  // the approved comments, so the person sees exactly what will go out (master prompt, section 13).
+  async function openPreview() {
+    setChecking(true)
+    setError(null)
+    try {
+      const [current, image, comments] = await Promise.all([
+        linkedInFunctionIsCurrent(),
+        imagePath ? imagePreviewUrl(imagePath).then((url) => ({ url, failed: false })).catch(() => ({ url: null, failed: true })) : Promise.resolve({ url: null, failed: false }),
+        followUps ? fetchComments(postId).then((list) => ({ list, failed: false })).catch(() => ({ list: [] as PostComment[], failed: true })) : Promise.resolve({ list: [] as PostComment[], failed: false }),
+      ])
+      setPreview({
+        current,
+        imageUrl: image.url,
+        imageFailed: image.failed,
+        approved: comments.list.filter((cm) => cm.included && cm.status === 'approved'),
+        notApproved: comments.list.filter((cm) => cm.included && cm.status === 'draft').length,
+        commentsFailed: comments.failed,
+      })
+      setConfirming(true)
+    } catch (e) {
+      setError({ code: codeOf(e) })
+    } finally {
+      setChecking(false)
     }
   }
 
@@ -222,29 +277,75 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   return (
     <div className="mt-3">
       {!confirming ? (
-        <button type="button" className={primaryBtn} onClick={() => { setConfirming(true); setError(null) }}>
-          <Send size={16} aria-hidden="true" /> Post to LinkedIn now
+        <button type="button" className={primaryBtn} onClick={openPreview} disabled={checking}>
+          {checking ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+          {checking ? 'Preparing the preview...' : 'Preview and post to LinkedIn'}
         </button>
-      ) : (
-        <div role="alertdialog" aria-label="Post to LinkedIn" className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
-          <p className="text-sm text-[var(--color-text-primary)]">
-            This posts the text above{hasImage ? ' and its image' : ''} <strong>publicly</strong> on your LinkedIn profile{c.name ? ` (${c.name})` : ''}, right now.
-            Hiba cannot delete it from LinkedIn later.
+      ) : preview && !preview.current ? (
+        <div role="alert" className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <p className="font-semibold">Hiba cannot post right now.</p>
+          <p className="mt-1">
+            The LinkedIn function in Supabase is out of date. It would post your text without the image and could not post comments,
+            so nothing was posted. In Supabase, go to Edge Functions, redeploy <strong>linkedin</strong> with Verify JWT on, then try again.
           </p>
-          {!hasImage && (
+          <button type="button" className={`${outlineBtn} mt-2`} onClick={() => { setConfirming(false); setPreview(null) }}>OK</button>
+        </div>
+      ) : preview ? (
+        <div role="alertdialog" aria-label="Preview your LinkedIn post" className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+          <p className="text-sm font-semibold text-[var(--color-text-primary)]">
+            This is exactly what will be posted <strong>publicly</strong> on your LinkedIn profile{c.name ? ` (${c.name})` : ''}:
+          </p>
+          <div className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white p-3">
+            <p className="whitespace-pre-line break-words text-sm text-[var(--color-text-primary)]">{text}</p>
+            {imagePath && preview.imageUrl && (
+              <img src={preview.imageUrl} alt={imageAlt || 'Image attached to this post'} className="mt-3 max-h-72 w-full rounded-[var(--radius-sm)] object-cover" />
+            )}
+            {imagePath && !preview.imageUrl && (
+              <p className="mt-3 text-xs text-[var(--color-text-secondary)]">An image is attached{preview.imageFailed ? ', but its preview could not load here' : ''}. It is posted with the text.</p>
+            )}
+          </div>
+          {!imagePath && (
             <p className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
               No image attached. Posts with an image usually get much more attention. You can add one above, or post without it.
             </p>
           )}
+
+          {followUps && (
+            <div className="mt-3 text-sm">
+              {preview.commentsFailed ? (
+                <p className="text-amber-900">Your follow-up comments could not be checked just now. Only approved comments are ever posted.</p>
+              ) : preview.approved.length > 0 ? (
+                <>
+                  <p className="font-semibold text-[var(--color-text-primary)]">
+                    Then these {preview.approved.length} approved comment{preview.approved.length === 1 ? ' is' : 's are'} posted under it, one by one, 15 to 60 seconds apart:
+                  </p>
+                  <ol className="mt-1 list-decimal space-y-1 pl-5 text-[var(--color-text-primary)]">
+                    {preview.approved.map((cm) => <li key={cm.id} className="whitespace-pre-line break-words">{cm.body}</li>)}
+                  </ol>
+                  <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Keep this page open after posting while the comments go out.</p>
+                </>
+              ) : (
+                <p className="text-[var(--color-text-secondary)]">No follow-up comments will be posted.</p>
+              )}
+              {preview.notApproved > 0 && (
+                <p className="mt-1 rounded-[var(--radius-sm)] bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                  {preview.notApproved} comment{preview.notApproved === 1 ? ' is' : 's are'} not approved and will not be posted.
+                  Press Not yet and approve {preview.notApproved === 1 ? 'it' : 'them'} in Follow-up comments below if you want {preview.notApproved === 1 ? 'it' : 'them'} too.
+                </p>
+              )}
+            </div>
+          )}
+
+          <p className="mt-3 text-xs text-[var(--color-text-secondary)]">Hiba cannot delete the post from LinkedIn later.</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button type="button" className={primaryBtn} onClick={publish} disabled={publishing}>
               {publishing ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Posting...</> : 'Yes, post it'}
             </button>
-            <button type="button" className={outlineBtn} onClick={() => setConfirming(false)} disabled={publishing}>Not yet</button>
+            <button type="button" className={outlineBtn} onClick={() => { setConfirming(false); setPreview(null) }} disabled={publishing}>Not yet</button>
           </div>
           {publishing && slow && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">Still waiting for LinkedIn. Please keep this page open.</p>}
         </div>
-      )}
+      ) : null}
       {error && (
         <div role="alert" className="mt-2 text-sm text-[var(--color-error)]">
           <p>{LINKEDIN_ERROR_TEXT[error.code]}</p>

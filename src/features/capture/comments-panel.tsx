@@ -397,8 +397,10 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
             )}
             {queue.length > 0 && (confirmStop ? (
               <span className="flex flex-wrap items-center gap-2">
-                Stop and keep the rest as drafts?
-                <button type="button" className={outlineBtn} onClick={stop} disabled={runner === 'posting'}>Yes, stop</button>
+                {sequenceActive || runner === 'paused' ? 'Stop and keep the rest as drafts?' : 'Take back approval? Nothing will be posted.'}
+                <button type="button" className={outlineBtn} onClick={() => { setConfirmStop(false); void (sequenceActive || runner === 'paused' ? stop() : withdraw()) }} disabled={runner === 'posting'}>
+                  {sequenceActive || runner === 'paused' ? 'Yes, stop' : 'Yes, take it back'}
+                </button>
                 <button type="button" className="font-semibold underline" onClick={() => setConfirmStop(false)}>Keep going</button>
               </span>
             ) : (
@@ -504,9 +506,6 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
               <button type="button" className={primaryBtn} onClick={approve} disabled={!online || busy}>
                 {published ? `Approve and post ${draftsToApprove} comment${draftsToApprove === 1 ? '' : 's'}` : `Approve ${draftsToApprove} comment${draftsToApprove === 1 ? '' : 's'}`}
               </button>
-            )}
-            {queue.length > 0 && runner === 'idle' && !published && (
-              <button type="button" className={outlineBtn} onClick={withdraw} disabled={busy}>Take back approval</button>
             )}
             {!anyLocked && (confirmReplace ? (
               <span className="flex flex-wrap items-center gap-2 text-sm text-[var(--color-text-primary)]">
