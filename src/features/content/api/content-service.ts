@@ -140,9 +140,11 @@ export async function invokeDrafting<T>(body: Record<string, string>): Promise<T
       const res = error.context as Response
       let code = ''
       let question = ''
+      let detail = ''
       try {
-        const payload = (await res.json()) as { error?: string; question?: string }
+        const payload = (await res.json()) as { error?: string; question?: string; detail?: string }
         code = payload.error ?? ''
+        detail = typeof payload.detail === 'string' ? payload.detail.slice(0, 300) : ''
         question = typeof payload.question === 'string' ? payload.question.slice(0, 300) : ''
       } catch {
         // Body was not JSON; fall through to the status code.
@@ -151,9 +153,9 @@ export async function invokeDrafting<T>(body: Record<string, string>): Promise<T
       if (code === 'needs_clarification' && question) throw new ContentError('needs_clarification', question)
       if (code === 'rate_limited') throw new ContentError('rate_limited')
       if (code === 'not_configured') throw new ContentError('not_configured')
-      if (code === 'not_found') throw new ContentError('not_found')
+      if (code === 'not_found') throw new ContentError('not_found', detail || null)
       if (code === 'nothing_to_change') throw new ContentError('nothing_to_change')
-      throw new ContentError('ai_failed')
+      throw new ContentError('ai_failed', detail || null)
     }
     // Function not deployed yet, network down, or blocked: treat by connectivity.
     if (typeof navigator !== 'undefined' && !navigator.onLine) throw new ContentError('offline')

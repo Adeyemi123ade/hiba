@@ -44,7 +44,8 @@ function reply(status: number, body: unknown) {
     headers: { ...cors, 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
   })
 }
-const fail = (status: number, code: ErrorCode) => reply(status, { error: code })
+/** `detail` is a short plain reason the app shows, so a failure is never a mystery. No secrets in it. */
+const fail = (status: number, code: ErrorCode, detail?: string) => reply(status, { error: code, ...(detail ? { detail: detail.slice(0, 300) } : {}) })
 
 interface Drafts {
   linkedin: string
@@ -587,15 +588,28 @@ export function commentProblems(list: string[], postText: string): string[] {
   return problems
 }
 
-const cleanComment = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/\n{3,}/g, '\n\n') : '')
+/**
+ * One comment from the AI. Usually a string, but the AI sometimes sends an object such as
+ * {"text": "..."} or {"position": 1, "comment": "..."}; those are read too instead of being dropped.
+ */
+const cleanComment = (v: unknown): string => {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>
+    v = o.text ?? o.comment ?? o.body ?? o.content ?? o.message ?? ''
+  }
+  return typeof v === 'string' ? v.trim().replace(/\n{3,}/g, '\n\n') : ''
+}
 
 /** Keeps well-formed comments, without duplicates. Over-long ones are kept (and flagged), never cut. */
 export function parseComments(raw: string): string[] | null {
   try {
     const d = JSON.parse(raw)
-    if (!Array.isArray(d?.comments)) return null
+    // Expected {"comments": [...]}; also accept a bare list or the list under another name.
+    const list = Array.isArray(d) ? d : Array.isArray(d?.comments) ? d.comments
+      : (Object.values(d ?? {}).find((x) => Array.isArray(x)) as unknown[] | undefined)
+    if (!Array.isArray(list)) return null
     const out: string[] = []
-    for (const item of d.comments) {
+    for (const item of list) {
       const c = cleanComment(item).slice(0, 4000)
       if (c && !out.includes(c)) out.push(c)
     }
@@ -607,7 +621,8 @@ export function parseComments(raw: string): string[] | null {
 
 export function parseOneComment(raw: string): string | null {
   try {
-    const c = cleanComment(JSON.parse(raw)?.comment).slice(0, 4000)
+    const d = JSON.parse(raw)
+    const c = cleanComment(typeof d === 'string' ? d : d?.comment ?? d?.text ?? (Array.isArray(d?.comments) ? d.comments[0] : '')).slice(0, 4000)
     return c || null
   } catch {
     return null
@@ -669,7 +684,12 @@ async function callOpenAI(key: string, system: string, user: string): Promise<Dr
   return parseDrafts((await askOpenAI(key, system, user)) ?? '')
 }
 
+/** Why the last AI call in a request failed, in plain words (no secrets). */
 async function askOpenAI(key: string, system: string, user: string): Promise<string | null> {
+  return (await askOpenAIDetailed(key, system, user)).text
+}
+
+async function askOpenAIDetailed(key: string, system: string, user: string): Promise<{ text: string | null; reason: string }> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS)
   try {
@@ -685,15 +705,21 @@ async function askOpenAI(key: string, system: string, user: string): Promise<str
       }),
     })
     if (!res.ok) {
-      console.error('OpenAI error', res.status, (await res.text()).slice(0, 500))
-      return null
+      const body = (await res.text()).slice(0, 500)
+      console.error('OpenAI error', res.status, body)
+      const why = res.status === 429 ? 'OpenAI refused: rate limit or no credit left on the OpenAI account (429)'
+        : res.status === 401 ? 'OpenAI refused the API key (401). Check OPENAI_API_KEY in Supabase secrets'
+        : res.status === 404 ? 'OpenAI does not know the model set in OPENAI_MODEL (404)'
+        : `OpenAI answered with an error (${res.status})`
+      return { text: null, reason: why }
     }
     const data = await res.json()
     const content = data?.choices?.[0]?.message?.content
-    return typeof content === 'string' ? content : null
+    return typeof content === 'string' ? { text: content, reason: '' } : { text: null, reason: 'OpenAI sent an empty answer' }
   } catch (e) {
+    const aborted = e instanceof Error && e.name === 'AbortError'
     console.error('OpenAI request failed', e instanceof Error ? e.message : e)
-    return null
+    return { text: null, reason: aborted ? `OpenAI took longer than ${OPENAI_TIMEOUT_MS / 1000} seconds` : 'Could not reach OpenAI' }
   } finally {
     clearTimeout(timer)
   }
@@ -897,40 +923,48 @@ async function handle(req: Request): Promise<Response> {
       // Rewrite one comment, keeping the others as context so it says something different.
       const others = siblings.filter((c) => c.id !== target!.id).map((c) => c.body)
       const prompt = buildCommentsPrompt(profile, idea.body, commentPost.body, { rewrite: target.position, current: target.body, others }, voice)
-      let next = parseOneComment((await askOpenAI(key, prompt.system, prompt.user)) ?? '')
-      if (!next) return fail(502, 'ai_failed')
+      const answer = await askOpenAIDetailed(key, prompt.system, prompt.user)
+      let next = parseOneComment(answer.text ?? '')
+      if (!next) return fail(502, 'ai_failed', answer.reason || 'The AI\'s reply could not be read as a comment')
       const problems = commentProblems([next], commentPost.body)
       if (problems.length) {
         const retry = parseOneComment((await askOpenAI(key, prompt.system, `${prompt.user}\n\nYour previous answer broke these rules: ${problems.join('; ')}. Write it again and follow every rule.`)) ?? '')
         if (retry && commentProblems([retry], commentPost.body).length < problems.length) next = retry
       }
       const { error } = await db.from('post_comments').update({ body: next.slice(0, COMMENT_MAX_CHARS) }).eq('id', target.id)
-      if (error) return fail(500, 'server_error')
+      if (error) return fail(500, 'server_error', `Saving the comment failed: ${error.message}`)
       const comments = await listComments()
       return comments ? reply(200, { comments }) : fail(500, 'server_error')
     }
     const prompt = buildCommentsPrompt(profile, idea.body, commentPost.body, { count: commentCount }, voice)
-    let list = parseComments((await askOpenAI(key, prompt.system, prompt.user)) ?? '')
-    if (!list) return fail(502, 'ai_failed')
+    let answer = await askOpenAIDetailed(key, prompt.system, prompt.user)
+    let list = parseComments(answer.text ?? '')
+    if (!list && answer.text) {
+      // Readable reply but not comments: ask once more before giving up.
+      console.error('Comments reply not usable', answer.text.slice(0, 300))
+      answer = await askOpenAIDetailed(key, prompt.system, `${prompt.user}\n\nReply with JSON only, exactly like {"comments": ["first comment", "second comment"]}.`)
+      list = parseComments(answer.text ?? '')
+    }
+    if (!list) return fail(502, 'ai_failed', answer.reason || 'The AI\'s reply could not be read as comments')
     const problems = [...commentProblems(list, commentPost.body), ...(list.length < commentCount ? [`you wrote ${list.length} comments instead of ${commentCount}`] : [])]
     if (problems.length) {
       const retry = parseComments((await askOpenAI(key, prompt.system, `${prompt.user}\n\nYour previous answer broke these rules: ${problems.join('; ')}. Write it again and follow every rule.`)) ?? '')
       const score = (l: string[]) => commentProblems(l, commentPost.body).length + Math.abs(commentCount - l.length)
       if (retry && score(retry) < score(list)) list = retry
     }
-    if (list.length < 3) return fail(502, 'ai_failed')
+    if (list.length < 3) return fail(502, 'ai_failed', `The AI wrote only ${list.length} usable comment(s); at least 3 are needed`)
     // Replaces the post's earlier comments (the screen asks first when there are any).
     const { error: delError } = await db.from('post_comments').delete().eq('post_id', commentPost.id)
-    if (delError) return fail(500, 'server_error')
+    if (delError) return fail(500, 'server_error', `Removing the earlier comments failed: ${delError.message}`)
     const { error: insError } = await db.from('post_comments').insert(
       list.slice(0, commentCount).map((body, i) => ({ user_id: userId, post_id: commentPost.id, position: i + 1, body: body.slice(0, COMMENT_MAX_CHARS) })),
     )
     if (insError) {
       console.error('Saving comments failed', insError.message)
-      return fail(500, 'server_error')
+      return fail(500, 'server_error', `Saving the comments failed: ${insError.message}`)
     }
     const comments = await listComments()
-    return comments ? reply(200, { comments }) : fail(500, 'server_error')
+    return comments ? reply(200, { comments }) : fail(500, 'server_error', 'The comments were saved but could not be read back. Reload the page.')
   }
 
   if (wantAngles) {

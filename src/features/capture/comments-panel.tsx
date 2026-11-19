@@ -74,6 +74,8 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [error, setError] = useState<ContentErrorCode | null>(null)
+  // The server's plain reason for the last failure, shown under the message.
+  const [errorDetail, setErrorDetail] = useState<string | null>(null)
   const [postError, setPostError] = useState<{ text: string; session?: boolean } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
@@ -211,6 +213,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       if (done) setNotice(done)
     } catch (e) {
       setError(codeOf(e))
+      setErrorDetail(e instanceof ContentError ? e.detail : null)
       await queryClient.invalidateQueries({ queryKey: key })
     } finally {
       setWorking(null)
@@ -538,6 +541,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       {error && (
         <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-red-700">
           {message(error)}
+          {errorDetail && <span className="basis-full text-xs">Reason: {errorDetail}</span>}
           {error === 'session_expired' && <SignInAgainButton />}
         </div>
       )}
