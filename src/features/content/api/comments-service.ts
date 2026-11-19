@@ -19,8 +19,15 @@ export const COMMENTS_MIN = 5
 export const COMMENTS_MAX = 10
 export const COMMENT_MAX_CHARS = 1250
 
-/** Always shown in the saved order, whatever order the server sends. */
-const byPosition = (list: PostComment[]) => [...list].sort((a, b) => a.position - b.position)
+const STATUSES: PostComment['status'][] = ['draft', 'approved', 'publishing', 'published', 'failed']
+
+/**
+ * Always shown in the saved order, whatever order the server sends. A comment with no known status
+ * (an older drafting function sends none) is treated as a draft, so it can still be approved.
+ */
+const byPosition = (list: PostComment[]) => [...list]
+  .map((c) => ({ ...c, status: STATUSES.includes(c.status) ? c.status : 'draft' as const, included: c.included !== false }))
+  .sort((a, b) => a.position - b.position)
 
 function dbError(error: { code?: string; message?: string } | null): ContentError {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return new ContentError('offline')
@@ -35,19 +42,30 @@ export async function fetchComments(postId: string): Promise<PostComment[]> {
     .from('post_comments').select('id, post_id, position, body, included, status, failure_reason, published_at, updated_at')
     .eq('post_id', postId).order('position', { ascending: true })
   if (error) throw dbError(error)
-  return (data ?? []) as PostComment[]
+  return byPosition((data ?? []) as PostComment[])
+}
+
+/** After writing, the saved rows are the truth. If reading them fails, what the function sent is used. */
+async function savedOr(postId: string, sent: PostComment[]): Promise<PostComment[]> {
+  try {
+    const saved = await fetchComments(postId)
+    return saved.length ? saved : byPosition(sent)
+  } catch {
+    return byPosition(sent)
+  }
 }
 
 /** Writes `count` comments for the post. Replaces any earlier comments for it. */
 export async function generateComments(ideaId: string, postId: string, count: number): Promise<PostComment[]> {
   const data = await invokeDrafting<{ comments: PostComment[] }>({ ideaId, mode: 'comments', postId, count: String(count) })
-  return byPosition(data.comments ?? [])
+  return savedOr(postId, data.comments ?? [])
 }
 
 /** Writes one comment again, keeping the others. */
 export async function rewriteComment(ideaId: string, commentId: string): Promise<PostComment[]> {
   const data = await invokeDrafting<{ comments: PostComment[] }>({ ideaId, mode: 'comment', commentId })
-  return byPosition(data.comments ?? [])
+  const sent = data.comments ?? []
+  return sent[0]?.post_id ? savedOr(sent[0].post_id, sent) : byPosition(sent)
 }
 
 export async function updateComment(id: string, change: Partial<Pick<PostComment, 'body' | 'included' | 'status'>>): Promise<void> {
