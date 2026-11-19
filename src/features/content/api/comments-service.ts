@@ -8,6 +8,10 @@ export interface PostComment {
   position: number
   body: string
   included: boolean
+  /** draft -> approved -> publishing -> published, or failed. */
+  status: 'draft' | 'approved' | 'publishing' | 'published' | 'failed'
+  failure_reason?: string | null
+  published_at?: string | null
   updated_at?: string
 }
 
@@ -28,7 +32,7 @@ function dbError(error: { code?: string; message?: string } | null): ContentErro
 
 export async function fetchComments(postId: string): Promise<PostComment[]> {
   const { data, error } = await supabase
-    .from('post_comments').select('id, post_id, position, body, included, updated_at')
+    .from('post_comments').select('id, post_id, position, body, included, status, failure_reason, published_at, updated_at')
     .eq('post_id', postId).order('position', { ascending: true })
   if (error) throw dbError(error)
   return (data ?? []) as PostComment[]
@@ -46,7 +50,7 @@ export async function rewriteComment(ideaId: string, commentId: string): Promise
   return byPosition(data.comments ?? [])
 }
 
-export async function updateComment(id: string, change: Partial<Pick<PostComment, 'body' | 'included'>>): Promise<void> {
+export async function updateComment(id: string, change: Partial<Pick<PostComment, 'body' | 'included' | 'status'>>): Promise<void> {
   const { data, error } = await supabase.from('post_comments').update(change).eq('id', id).select('id')
   if (error) throw dbError(error)
   if (!data?.length) throw new ContentError('not_found')
@@ -65,4 +69,26 @@ export async function saveOrder(ordered: PostComment[]): Promise<void> {
     const { error } = await supabase.from('post_comments').update({ position: i + 1 }).eq('id', ordered[i].id)
     if (error) throw dbError(error)
   }
+}
+
+/** Approves comments for posting (or retries failed ones). Only draft or failed comments move. */
+export async function approveComments(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const { error } = await supabase.from('post_comments').update({ status: 'approved' }).in('id', ids).in('status', ['draft', 'failed'])
+  if (error) throw dbError(error)
+}
+
+/** Takes approval back from comments that are not posted yet. */
+export async function withdrawApproval(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  const { error } = await supabase.from('post_comments').update({ status: 'draft' }).in('id', ids).eq('status', 'approved')
+  if (error) throw dbError(error)
+}
+
+/** The owner's rule: a different random gap of 15 to 60 seconds before each comment. */
+export function randomGapMs(previous?: number): number {
+  let gap = 15_000 + Math.floor(Math.random() * 45_001)
+  // Never the same whole number of seconds twice in a row.
+  if (previous !== undefined && Math.round(gap / 1000) === Math.round(previous / 1000)) gap = gap >= 59_000 ? gap - 2_000 : gap + 2_000
+  return gap
 }

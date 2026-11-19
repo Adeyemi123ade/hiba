@@ -717,7 +717,7 @@ export function CapturePage() {
         </Card>
 
         {ideaId && active.platform === 'linkedin' && active.body.trim() && active.status !== 'archived' && (
-          <CommentsPanel key={active.id} ideaId={ideaId} postId={active.id} online={online} enabled={followUps} />
+          <CommentsPanel key={active.id} ideaId={ideaId} postId={active.id} online={online} enabled={followUps} postStatus={active.status} postUrl={active.external_url ?? null} />
         )}
 
         {ideaId && <AnglesPanel ideaId={ideaId} online={online} canRewrite={anyDraft} onChoose={writeFromAngle} />}

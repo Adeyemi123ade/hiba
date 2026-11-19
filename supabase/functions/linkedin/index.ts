@@ -14,6 +14,8 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const STATE_MAX_AGE_MS = 10 * 60 * 1000
 const PUBLISH_LIMIT_PER_HOUR = 10
+// Follow-up comments (owner decision, 19 Nov 2026): at most 10 per post, so 30 an hour is plenty.
+const COMMENT_LIMIT_PER_HOUR = 30
 const LINKEDIN_TIMEOUT_MS = 20_000
 const SCOPES = 'openid profile w_member_social'
 
@@ -26,7 +28,7 @@ const cors = {
 type ErrorCode =
   | 'bad_request' | 'unauthorized' | 'not_found' | 'not_configured' | 'state_invalid' | 'linkedin_failed'
   | 'not_connected' | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited'
-  | 'too_long' | 'image_failed' | 'server_error'
+  | 'too_long' | 'image_failed' | 'server_error' | 'post_not_published' | 'comment_not_allowed' | 'comment_unconfirmed'
 
 function reply(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -365,6 +367,92 @@ Deno.serve(async (req) => {
       return reply(200, { published: true, url: externalUrl, warning: 'saved_status_failed' })
     }
     return reply(200, { published: true, url: externalUrl })
+  }
+
+  // ---------- comment: post ONE approved follow-up comment under the person's published post ----------
+  // The app calls this once per comment, with the owner's random 15 to 60 second gaps between calls.
+  // Duplicate protection: the comment is claimed (approved -> publishing) before LinkedIn is called,
+  // so a second tab or a double click cannot post it twice. If LinkedIn does not answer, the comment
+  // is marked failed with a warning to check LinkedIn first, and it is never retried automatically.
+  if (action === 'comment') {
+    if (!key) return fail(503, 'not_configured')
+    const commentId = typeof input.commentId === 'string' ? input.commentId : ''
+    if (!/^[0-9a-f-]{36}$/i.test(commentId)) return fail(400, 'bad_request')
+
+    const { data: comment } = await db.from('post_comments')
+      .select('id, post_id, body, status, included').eq('id', commentId).maybeSingle()
+    if (!comment) return fail(404, 'not_found')
+    if (comment.status === 'published') return fail(409, 'already_published')
+    if (comment.status !== 'approved' || !comment.included) return fail(409, 'not_approved')
+    const text = String(comment.body ?? '').trim()
+    if (!text || text.length > 1250) return fail(400, 'bad_request')
+
+    const { data: post } = await db.from('posts')
+      .select('id, platform, status, external_id').eq('id', comment.post_id).maybeSingle()
+    if (!post || post.platform !== 'linkedin') return fail(404, 'not_found')
+    if (post.status !== 'published' || !post.external_id) return fail(409, 'post_not_published')
+
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { count } = await db.from('post_comments').select('id', { count: 'exact', head: true }).gte('published_at', since)
+    if ((count ?? 0) >= COMMENT_LIMIT_PER_HOUR) return fail(429, 'rate_limited')
+
+    const { data: conn } = await db.from('linkedin_connections')
+      .select('member_id, access_token_enc, expires_at').eq('user_id', userId).maybeSingle()
+    if (!conn) return fail(409, 'not_connected')
+    if (new Date(conn.expires_at).getTime() <= Date.now()) return fail(401, 'linkedin_expired')
+    const accessToken = await decryptToken(key, conn.access_token_enc)
+    if (!accessToken) return fail(401, 'linkedin_expired')
+
+    const { data: claimed } = await db.from('post_comments')
+      .update({ status: 'publishing' }).eq('id', commentId).eq('status', 'approved').select('id')
+    if (!claimed || claimed.length === 0) return fail(409, 'not_approved')
+    const markFailed = (reason: string) =>
+      db.from('post_comments').update({ status: 'failed', failure_reason: reason.slice(0, 500) }).eq('id', commentId).eq('status', 'publishing')
+
+    const urn = String(post.external_id)
+    let res: Response
+    try {
+      res = await linkedinFetch(`https://api.linkedin.com/v2/socialActions/${encodeURIComponent(urn)}/comments`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+        body: JSON.stringify({ actor: `urn:li:person:${conn.member_id}`, object: urn, message: { text } }),
+      })
+    } catch {
+      const reason = 'LinkedIn did not answer, so Hiba could not confirm whether this comment was posted. Check your post on LinkedIn before trying again.'
+      await markFailed(reason)
+      return fail(502, 'comment_unconfirmed', reason)
+    }
+    if (res.status === 401) {
+      await db.from('post_comments').update({ status: 'approved' }).eq('id', commentId).eq('status', 'publishing')
+      return fail(401, 'linkedin_expired')
+    }
+    if (res.status === 403) {
+      const detail = (await res.text()).slice(0, 300)
+      console.error('LinkedIn comment refused', res.status, detail)
+      const reason = 'LinkedIn did not allow Hiba to post comments with your LinkedIn app\'s current permissions (403). Copy this comment and post it yourself.'
+      await markFailed(reason)
+      return fail(403, 'comment_not_allowed', reason)
+    }
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 300)
+      console.error('LinkedIn comment failed', res.status, detail)
+      const reason = `LinkedIn did not accept this comment (${res.status}). Nothing was posted.`
+      await markFailed(reason)
+      return fail(502, 'linkedin_failed', reason)
+    }
+    const commentUrn = res.headers.get('x-restli-id') ?? ((await res.json().catch(() => ({}))) as { id?: string; $URN?: string }).$URN ?? ''
+    const { error } = await db.from('post_comments')
+      .update({ status: 'published', external_id: commentUrn ? commentUrn.slice(0, 300) : null }).eq('id', commentId)
+    if (error) {
+      // The comment IS on LinkedIn; say so rather than inviting a duplicate.
+      console.error('Marking comment published failed', error.message)
+      return reply(200, { published: true, warning: 'saved_status_failed' })
+    }
+    return reply(200, { published: true })
   }
 
   return fail(400, 'bad_request')

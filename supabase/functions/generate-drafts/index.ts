@@ -24,7 +24,7 @@ const cors = {
 
 type ErrorCode =
   | 'bad_request' | 'unauthorized' | 'not_found' | 'rate_limited' | 'not_configured' | 'ai_failed' | 'server_error'
-  | 'nothing_to_change'
+  | 'nothing_to_change' | 'comments_posted'
 
 function reply(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -344,7 +344,9 @@ export function buildPrompt(
 export const COMMENTS_MIN = 5
 export const COMMENTS_MAX = 10
 export const COMMENT_MAX_CHARS = 1250
-const COMMENT_MAX_WORDS = 100
+// Owner rule (19 Nov 2026): 20 to 50 words, at most two normal paragraphs.
+export const COMMENT_MIN_WORDS = 20
+export const COMMENT_MAX_WORDS = 50
 // Filler the owner listed as never acceptable in a comment.
 export const COMMENT_BANNED = ['great point', 'another thing to consider', 'i completely agree', 'let me add something']
 
@@ -356,10 +358,12 @@ export function commentProblems(list: string[], postText: string): string[] {
     const used = [...BANNED_PHRASES, ...COMMENT_BANNED].filter((b) => lower(c).includes(b))
     if (used.length) problems.push(`comment ${n} used banned phrases: ${used.map((b) => `"${b}"`).join(', ')}`)
     if (c.length > COMMENT_MAX_CHARS) problems.push(`comment ${n} is longer than ${COMMENT_MAX_CHARS} characters`)
-    if (countWords(c) > COMMENT_MAX_WORDS) problems.push(`comment ${n} is longer than ${COMMENT_MAX_WORDS} words`)
+    const words = countWords(c)
+    if (words > COMMENT_MAX_WORDS) problems.push(`comment ${n} has ${words} words; the limit is ${COMMENT_MAX_WORDS}`)
+    if (words < COMMENT_MIN_WORDS) problems.push(`comment ${n} has ${words} words; it needs at least ${COMMENT_MIN_WORDS}`)
+    if (paragraphs(c).length > 2) problems.push(`comment ${n} has more than two paragraphs`)
     if (/(^|\s)#\w/.test(c)) problems.push(`comment ${n} has hashtags`)
     if (/^\s*(\d+[.)]|comment\s*\d+)/i.test(c)) problems.push(`comment ${n} starts with a number or label`)
-    if (lines(c).some((l) => countSentences(l) > 2)) problems.push(`comment ${n} has a line with more than two sentences`)
   })
   // Repeating the post word for word adds nothing.
   const postLines = new Set(lines(postText).map(lower).filter((l) => l.length > 30))
@@ -418,8 +422,8 @@ export function buildCommentsPrompt(
     '- Let the subject decide the sequence. Do not follow a fixed template.',
     '',
     'FORMAT',
-    `- 20 to 80 words each, never more than ${COMMENT_MAX_CHARS} characters.`,
-    '- One sentence per line, never more than two short sentences on a line. Related points may sit on consecutive lines.',
+    `- Each comment is ${COMMENT_MIN_WORDS} to ${COMMENT_MAX_WORDS} words. Never fewer than ${COMMENT_MIN_WORDS}, never more than ${COMMENT_MAX_WORDS}.`,
+    '- Write normal prose in one or two short paragraphs (never more than two), separated by a blank line.',
     '- No hashtags, no numbering or labels such as "1." or "Comment 2", no emojis unless their writing sample uses them, no em dashes.',
     '- Same tone as the post: natural, confident, practical, plain words, the professional terms of their field where they help.',
     '',
@@ -569,14 +573,14 @@ Deno.serve(async (req) => {
 
   // Comments: the post (and the comment being rewritten) must be the caller's (RLS), belong to
   // this idea, be the LinkedIn post, have text, and not be archived. Checked before using the AI.
-  type CommentRow = { id: string; post_id: string; position: number; body: string; included: boolean }
+  type CommentRow = { id: string; post_id: string; position: number; body: string; included: boolean; status?: string }
   let commentPost: { id: string; body: string } | undefined
   let target: CommentRow | undefined
   let siblings: CommentRow[] = []
   if (commentMode) {
     if (rewriteCommentId) {
       const { data, error } = await db.from('post_comments')
-        .select('id, post_id, position, body, included').eq('id', rewriteCommentId).maybeSingle()
+        .select('id, post_id, position, body, included, status').eq('id', rewriteCommentId).maybeSingle()
       if (error) return fail(500, 'server_error')
       if (!data) return fail(404, 'not_found')
       target = data as CommentRow
@@ -589,9 +593,12 @@ Deno.serve(async (req) => {
     if (!String(p.body ?? '').trim() || p.status === 'archived') return fail(409, 'bad_request')
     commentPost = { id: p.id, body: String(p.body) }
     const { data: all, error: allError } = await db.from('post_comments')
-      .select('id, post_id, position, body, included').eq('post_id', postId).order('position')
+      .select('id, post_id, position, body, included, status').eq('post_id', postId).order('position')
     if (allError) return fail(500, 'server_error')
     siblings = (all ?? []) as CommentRow[]
+    // Comments already on LinkedIn are history: never replaced or rewritten.
+    if (wantComments && siblings.some((c) => c.status === 'publishing' || c.status === 'published')) return fail(409, 'comments_posted')
+    if (target && (target.status === 'publishing' || target.status === 'published')) return fail(409, 'comments_posted')
   }
 
   await db.from('draft_requests').insert({ user_id: userId, idea_id: ideaId })
@@ -602,7 +609,7 @@ Deno.serve(async (req) => {
   if (commentMode && commentPost) {
     const listComments = async () => {
       const { data, error } = await db.from('post_comments')
-        .select('id, post_id, position, body, included, updated_at').eq('post_id', commentPost.id).order('position')
+        .select('id, post_id, position, body, included, status, external_id, published_at, failure_reason, updated_at').eq('post_id', commentPost.id).order('position')
       return error ? null : data
     }
     if (target) {
