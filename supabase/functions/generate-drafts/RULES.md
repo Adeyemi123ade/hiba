@@ -94,10 +94,35 @@ insight, question for your audience, and short motivational post.
 - When you pick "Write my posts from this", all drafts that are not approved yet are written again from that angle, following every rule above. Approved, scheduled and published posts are never changed. Your earlier text stays under "Earlier versions", marked "Written from the angle: ...".
 - Angles stay linked to the idea. You can save them, discard them, or bring discarded ones back. Asking for angles counts toward the hourly limit below.
 
-## 6. Safety and limits
+## 6. Follow-up comments (master prompt sections 10 and 11; owner decisions of 19 Nov 2026)
+
+On the LinkedIn post you can ask for 5 to 10 follow-up comments. The AI sees your context (section 1), your idea, your LinkedIn post and your writing sample.
+
+**What each comment must be**
+- **20 to 50 words**, in normal prose of one or two short paragraphs (never more than two).
+- Connects to the post and adds ONE new thought: an extra perspective, an explanation, a practical example, a common misconception, a related lesson, a practical or technical consideration, a question, or an overlooked implication.
+- Never repeats the post or another comment. Sounds like you adding to your own discussion.
+- Never invents facts, names, numbers or experiences; examples are general or hypothetical unless your idea gave them.
+- Never filler: "Great point", "Another thing to consider", "I completely agree", "Let me add something", plus every banned phrase in section 2. No hashtags, no numbering, no em dashes.
+- The comments form a sequence that develops your argument; the subject decides the order, not a template.
+
+Hiba checks every list (word count 20 to 50, at most two paragraphs, banned phrases, hashtags, numbering, lines copied from the post) and asks the AI once more if needed, keeping the better attempt. "Write again" on one comment shows the AI the others so it says something different.
+
+**Posting to LinkedIn (automatic, after your approval)**
+- Only comments you **approve** are posted. Editing an approved comment sends it back to draft.
+- Posting starts once your LinkedIn post is live from Hiba: straight away if it is already live when you approve, or automatically right after you post it.
+- Each comment is posted after a **different random gap of 15 to 60 seconds**, the first one 15 to 60 seconds after the post.
+- You see the next comment and its countdown, what is posted and what failed, and can **pause, resume or stop** at any time. Stop puts the remaining comments back to draft.
+- A failed comment **stops the sequence** (it is never skipped) and shows the reason; "Try posting again" retries it. If LinkedIn does not answer, Hiba never retries by itself: check your post on LinkedIn first, so nothing is posted twice.
+- Posting runs while the drafts page is open. If you leave, it pauses; when you come back it waits for you to press Resume.
+- Posted comments cannot be edited, deleted from Hiba's list or replaced.
+- Limits: at most 10 comments per post and 30 posted comments per hour.
+- You can switch the whole feature off in Settings.
+
+## 7. Safety and limits
 
 - The OpenAI key stays on the server; your browser never sees it.
-- At most 20 drafting requests per person per hour.
+- At most 20 drafting requests per person per hour (drafts, rewrites, angles and comments all count).
 - Each request times out after 45 seconds and you can try again; your idea is saved first, so nothing is lost.
 - Your writing is not written to server logs.
 - Model: `gpt-4o-mini` unless the `OPENAI_MODEL` secret says otherwise. Creativity setting (temperature): 0.6, slightly lower than before so the AI stays closer to your idea. To use a stronger model, set the `OPENAI_MODEL` secret (for example `gpt-4o`) in Supabase; no code change is needed.

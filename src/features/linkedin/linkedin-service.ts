@@ -12,7 +12,7 @@ export interface LinkedInConnection {
 export type LinkedInErrorCode =
   | 'offline' | 'session_expired' | 'not_configured' | 'state_invalid' | 'linkedin_failed' | 'not_connected'
   | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited' | 'too_long' | 'image_failed' | 'cancelled'
-  | 'unknown'
+  | 'post_not_published' | 'comment_not_allowed' | 'comment_unconfirmed' | 'unknown'
 
 export class LinkedInError extends Error {
   readonly code: LinkedInErrorCode
@@ -39,6 +39,9 @@ export const LINKEDIN_ERROR_TEXT: Record<LinkedInErrorCode, string> = {
   too_long: 'This post is over the LinkedIn limit of 200 words. Shorten it, then try again.',
   image_failed: 'Your image could not be sent to LinkedIn, so nothing was posted. Try again, or replace the image.',
   cancelled: 'LinkedIn was not connected because the request was cancelled. You can try again any time.',
+  post_not_published: 'Post this to LinkedIn from Hiba first. Approved comments are posted under it after that.',
+  comment_not_allowed: 'LinkedIn did not allow Hiba to post comments with your LinkedIn app\'s current permissions. Copy the comment and post it yourself.',
+  comment_unconfirmed: 'LinkedIn did not answer, so Hiba could not confirm whether this comment was posted. Check your post on LinkedIn before trying again.',
   unknown: 'Something went wrong. Please try again.',
 }
 
@@ -119,4 +122,9 @@ export function disconnectLinkedIn() {
 
 export function publishToLinkedIn(postId: string) {
   return call<{ published: true; url: string | null; warning?: string }>({ action: 'publish', postId })
+}
+
+/** Posts ONE approved follow-up comment under the person's published LinkedIn post. */
+export async function postLinkedInComment(commentId: string): Promise<void> {
+  await call<{ published: boolean }>({ action: 'comment', commentId })
 }

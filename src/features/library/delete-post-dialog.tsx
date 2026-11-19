@@ -65,7 +65,7 @@ export function DeletePostDialog({ post, online, onClose, onDeleted }: {
         <p className="mt-2 text-sm text-[var(--color-text-primary)]">This removes, straight away and with no copy kept:</p>
         <ul className="mt-1 list-disc pl-5 text-sm text-[var(--color-text-primary)]">
           <li>the post text</li>
-          <li>all its earlier versions</li>
+          <li>all its earlier versions and follow-up comments</li>
           {post.image_path && <li>its image</li>}
           <li>the idea it came from and its angles, if no other post comes from that idea</li>
         </ul>

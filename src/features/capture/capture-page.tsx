@@ -14,6 +14,8 @@ import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versi
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { PostImage } from '@/features/capture/post-image'
 import { AnglesPanel } from '@/features/capture/angles-panel'
+import { CommentsPanel } from '@/features/capture/comments-panel'
+import { useProfile } from '@/features/onboarding/use-profile'
 import { DeletePostDialog } from '@/features/library/delete-post-dialog'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
@@ -48,6 +50,9 @@ export function CapturePage() {
   const userId = session?.user.id
   const online = useOnline()
   const queryClient = useQueryClient()
+  // Follow-up comments are on unless switched off in Settings.
+  const { data: profile } = useProfile(userId)
+  const followUps = profile?.onboarding?.followUpComments !== 'off'
   const [params, setParams] = useSearchParams()
   const ideaParam = params.get('idea')
 
@@ -710,6 +715,10 @@ export function CapturePage() {
             />
           )}
         </Card>
+
+        {ideaId && active.platform === 'linkedin' && active.body.trim() && active.status !== 'archived' && (
+          <CommentsPanel key={active.id} ideaId={ideaId} postId={active.id} online={online} enabled={followUps} postStatus={active.status} postUrl={active.external_url ?? null} />
+        )}
 
         {ideaId && <AnglesPanel ideaId={ideaId} online={online} canRewrite={anyDraft} onChoose={writeFromAngle} />}
 

@@ -133,7 +133,7 @@ export async function saveIdea(body: string, source: 'typed' | 'voice'): Promise
 export const GUIDANCE_MAX = 300
 
 /** Calls the drafting function and turns its errors into plain-language codes. */
-async function invokeDrafting<T>(body: Record<string, string>): Promise<T> {
+export async function invokeDrafting<T>(body: Record<string, string>): Promise<T> {
   const { data, error } = await supabase.functions.invoke<T>('generate-drafts', { body })
   if (error) {
     if (error instanceof FunctionsHttpError) {
