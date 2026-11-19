@@ -642,7 +642,10 @@ export function CapturePage() {
                   postId={active.id}
                   ideaId={ideaId}
                   isPublished={active.status === 'published'}
-                  hasImage={Boolean(active.image_path)}
+                  text={active.body}
+                  imagePath={active.image_path ?? null}
+                  imageAlt={active.image_alt ?? null}
+                  followUps={followUps}
                   publishedUrl={active.external_url ?? null}
                   onPublished={(url) => {
                     setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'published', external_url: url } : p)))

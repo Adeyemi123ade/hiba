@@ -13,6 +13,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const STATE_MAX_AGE_MS = 10 * 60 * 1000
+const FUNCTION_VERSION = 3
 const PUBLISH_LIMIT_PER_HOUR = 10
 // Follow-up comments (owner decision, 19 Nov 2026): at most 10 per post, so 30 an hour is plenty.
 const COMMENT_LIMIT_PER_HOUR = 30
@@ -184,6 +185,11 @@ Deno.serve(async (req) => {
   const clientSecret = Deno.env.get('LINKEDIN_CLIENT_SECRET')
   const redirectUri = Deno.env.get('LINKEDIN_REDIRECT_URI') ?? `${supabaseUrl}/functions/v1/linkedin-callback`
   const key = await encryptionKey()
+
+  // ---------- info: lets the app check this function is up to date before posting ----------
+  // An out-of-date copy would post without the image and could not post comments, so the app
+  // refuses to post unless this answers with both features. Bump FUNCTION_VERSION on changes.
+  if (action === 'info') return reply(200, { version: FUNCTION_VERSION, features: ['images', 'comments'] })
 
   // ---------- start: build the LinkedIn approval link ----------
   if (action === 'start') {
@@ -364,9 +370,9 @@ Deno.serve(async (req) => {
     if (error) {
       // The post IS live on LinkedIn; say so rather than inviting a duplicate.
       console.error('Marking post published failed', error.message)
-      return reply(200, { published: true, url: externalUrl, warning: 'saved_status_failed' })
+      return reply(200, { published: true, url: externalUrl, image: Boolean(media), warning: 'saved_status_failed' })
     }
-    return reply(200, { published: true, url: externalUrl })
+    return reply(200, { published: true, url: externalUrl, image: Boolean(media) })
   }
 
   // ---------- comment: post ONE approved follow-up comment under the person's published post ----------
