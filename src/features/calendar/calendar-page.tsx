@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, CalendarClock, CheckCircle2, ExternalLink } from 'lucide-react'
@@ -9,6 +9,7 @@ import { PLATFORMS } from '@/features/content/api/content-service'
 import {
   SCHEDULE_ERROR_TEXT, ScheduleError, fetchCalendarPosts, timeZoneName, type CalendarPost,
 } from '@/features/content/api/schedule-service'
+import { MonthView } from '@/features/calendar/month-view'
 
 const platformName = (id: string) => PLATFORMS.find((p) => p.id === id)?.name ?? id
 const firstLine = (text: string) => {
@@ -54,6 +55,21 @@ export function CalendarPage() {
     // Scheduled posts change by themselves when Hiba publishes them.
     refetchInterval: 60_000,
   })
+  const [view, setView] = useState<'month' | 'list'>(() => {
+    try {
+      return localStorage.getItem('hiba.calendar.view') === 'list' ? 'list' : 'month'
+    } catch {
+      return 'month'
+    }
+  })
+  const chooseView = (v: 'month' | 'list') => {
+    setView(v)
+    try {
+      localStorage.setItem('hiba.calendar.view', v)
+    } catch {
+      // Private mode: the choice is just not remembered.
+    }
+  }
 
   const { upcoming, failed, recent } = useMemo(() => {
     const all = query.data ?? []
@@ -83,7 +99,31 @@ export function CalendarPage() {
         </Card>
       )}
 
-      {query.isSuccess && (
+      <div className="mb-4 inline-flex rounded-[var(--radius-sm)] border border-[var(--color-border)] p-0.5" role="group" aria-label="View">
+        {(['month', 'list'] as const).map((v) => (
+          <button key={v} type="button" aria-pressed={view === v} onClick={() => chooseView(v)}
+            className={view === v
+              ? 'rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-3 py-1 text-sm font-semibold text-white'
+              : 'rounded-[var(--radius-sm)] px-3 py-1 text-sm text-[var(--color-text-primary)]'}>
+            {v === 'month' ? 'Month' : 'List'}
+          </button>
+        ))}
+      </div>
+
+      {query.isSuccess && view === 'month' && userId && (
+        <>
+          {failed.length > 0 && (
+            <p role="alert" className="mb-4 flex items-center gap-2 rounded-[var(--radius-md)] bg-red-50 px-3 py-2 text-sm text-red-800">
+              <AlertTriangle size={18} aria-hidden="true" />
+              {failed.length === 1 ? 'One post needs your attention.' : `${failed.length} posts need your attention.`}
+              <button type="button" className="font-semibold underline" onClick={() => chooseView('list')}>See why</button>
+            </p>
+          )}
+          <MonthView ahead={query.data} userId={userId} />
+        </>
+      )}
+
+      {query.isSuccess && view === 'list' && (
         <>
           {failed.length > 0 && (
             <Card className="border-red-200">

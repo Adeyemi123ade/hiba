@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ImagePlus, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ImagePlus, Images, Loader2, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
 import {
-  IMAGE_ALT_MAX, IMAGE_ERROR_TEXT, IMAGE_MAX_COUNT, ImageError, addImages, imagePreviewUrl, moveImage, removeImage,
-  replaceImage, saveImageAlt, type ImageErrorCode, type PostImageItem,
+  IMAGE_ALT_MAX, IMAGE_ERROR_TEXT, IMAGE_MAX_COUNT, ImageError, addImages, attachLibraryImages, describeFromPost,
+  imagePreviewUrl, moveImage, removeImage, replaceImage, saveImageAlt, type ImageErrorCode, type PostImageItem,
 } from '@/features/content/api/image-service'
+import { GenerateImagePanel, ImagePickerDialog } from '@/features/images/image-components'
 
 const outlineBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50'
@@ -13,9 +14,11 @@ const iconBtn =
 const codeOf = (e: unknown): ImageErrorCode => (e instanceof ImageError ? e.code : 'upload')
 
 /** HPD-60: add up to 9 images to a LinkedIn post, describe, reorder, replace or remove each one. */
-export function PostImages({ userId, postId, images, editable, online, onChange }: {
+export function PostImages({ userId, postId, postText, images, editable, online, onChange }: {
   userId: string
   postId: string
+  /** The post's text, used as a starting description when creating an image with AI. */
+  postText: string
   images: PostImageItem[]
   editable: boolean
   online: boolean
@@ -27,6 +30,8 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<ImageErrorCode | null>(null)
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
+  const [picking, setPicking] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const room = IMAGE_MAX_COUNT - images.length
 
   async function run(label: string, task: () => Promise<PostImageItem[]>) {
@@ -106,10 +111,31 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
 
       {editable && room > 0 && (
         <div className="mt-3 flex flex-col items-start gap-1">
-          <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => addInput.current?.click()}>
-            {busy === 'adding' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ImagePlus size={16} aria-hidden="true" />}
-            {busy === 'adding' ? 'Uploading...' : images.length ? 'Add more images' : 'Add images'}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => addInput.current?.click()}>
+              {busy === 'adding' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ImagePlus size={16} aria-hidden="true" />}
+              {busy === 'adding' ? 'Uploading...' : 'Upload'}
+            </button>
+            <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => setPicking(true)}>
+              <Images size={16} aria-hidden="true" /> Choose from Images
+            </button>
+            <button type="button" className={outlineBtn} disabled={busy !== null || !online} aria-expanded={generating}
+              onClick={() => setGenerating((g) => !g)}>
+              <Sparkles size={16} aria-hidden="true" /> {generating ? 'Close' : 'Create with AI'}
+            </button>
+          </div>
+          {generating && (
+            <div className="mt-2 w-full">
+              <GenerateImagePanel
+                initialDescription={describeFromPost(postText)}
+                online={online}
+                onCreated={async (img) => {
+                  await run('adding', () => attachLibraryImages(postId, images, [img]))
+                  setGenerating(false)
+                }}
+              />
+            </div>
+          )}
           <p className="text-xs text-[var(--color-text-secondary)]">
             Optional, but posts with images usually get much more attention. Up to {IMAGE_MAX_COUNT} JPG, PNG or GIF images,
             5 MB each, posted together with your text. The first image leads the post.
@@ -118,6 +144,16 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
       )}
 
       {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{IMAGE_ERROR_TEXT[error]}</p>}
+      {images.length > 0 && editable && (
+        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">Removing an image from this post keeps it in your Images.</p>
+      )}
+      <ImagePickerDialog
+        open={picking}
+        max={room}
+        exclude={images.map((i) => i.path)}
+        onClose={() => setPicking(false)}
+        onPick={(picked) => run('adding', () => attachLibraryImages(postId, images, picked))}
+      />
     </div>
   )
 }

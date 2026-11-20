@@ -136,3 +136,21 @@ export async function fetchCalendarPosts(pastDays = 30): Promise<CalendarPost[]>
   if (done.error) throw toError(done.error)
   return [...(ahead.data ?? []), ...(done.data ?? [])] as CalendarPost[]
 }
+
+/** Posts that went out between two times (for the month view). */
+export async function fetchPublishedBetween(from: Date, to: Date): Promise<CalendarPost[]> {
+  const cols = 'id, idea_id, platform, body, status, scheduled_for, published_at, failure_reason, external_url, updated_at'
+  const { data, error } = await supabase.from('posts').select(cols).eq('status', 'published')
+    .gte('published_at', from.toISOString()).lt('published_at', to.toISOString()).order('published_at').limit(500)
+  if (error) throw toError(error)
+  return (data ?? []) as CalendarPost[]
+}
+
+/** Approved LinkedIn posts waiting for a time: what can be put on the calendar. */
+export async function fetchReadyToSchedule(): Promise<CalendarPost[]> {
+  const cols = 'id, idea_id, platform, body, status, scheduled_for, published_at, failure_reason, external_url, updated_at'
+  const { data, error } = await supabase.from('posts').select(cols).eq('status', 'approved').eq('platform', 'linkedin')
+    .order('updated_at', { ascending: false }).limit(50)
+  if (error) throw toError(error)
+  return (data ?? []) as CalendarPost[]
+}

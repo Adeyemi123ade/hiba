@@ -586,6 +586,7 @@ export function CapturePage() {
               key={active.id}
               userId={userId}
               postId={active.id}
+              postText={active.body}
               images={imagesOf(active)}
               editable={active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'}
               online={online}
