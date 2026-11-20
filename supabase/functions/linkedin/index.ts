@@ -193,8 +193,11 @@ async function handle(req: Request): Promise<Response> {
     const postId = typeof input.postId === 'string' ? input.postId : ''
     if (!/^[0-9a-f-]{36}$/i.test(postId)) return fail(400, 'bad_request')
 
-    const { data: post } = await db.from('posts')
-      .select('id, platform, status, body, external_id, external_url, image_path, image_alt, images').eq('id', postId).maybeSingle()
+    const cols = 'id, platform, status, body, external_id, external_url, image_path, image_alt'
+    // deno-lint-ignore no-explicit-any
+    let { data: post, error: postError }: { data: any; error: unknown } = await db.from('posts').select(`${cols}, images`).eq('id', postId).maybeSingle()
+    // Before migration 0016 there is no image list yet: read the single image only.
+    if (postError) ({ data: post } = await db.from('posts').select(cols).eq('id', postId).maybeSingle())
     if (!post || post.platform !== 'linkedin') return fail(404, 'not_found')
     if (post.status === 'published') return fail(409, 'already_published', post.external_url ?? undefined)
     if (post.status !== 'approved') return fail(409, 'not_approved')
