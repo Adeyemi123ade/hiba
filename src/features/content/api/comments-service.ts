@@ -12,6 +12,8 @@ export interface PostComment {
   status: 'draft' | 'approved' | 'publishing' | 'published' | 'failed'
   failure_reason?: string | null
   published_at?: string | null
+  /** Set by Hiba's background publisher: when this comment goes out automatically (scheduled posts). */
+  due_at?: string | null
   updated_at?: string
 }
 
@@ -39,7 +41,7 @@ function dbError(error: { code?: string; message?: string } | null): ContentErro
 
 export async function fetchComments(postId: string): Promise<PostComment[]> {
   const { data, error } = await supabase
-    .from('post_comments').select('id, post_id, position, body, included, status, failure_reason, published_at, updated_at')
+    .from('post_comments').select('id, post_id, position, body, included, status, failure_reason, published_at, due_at, updated_at')
     .eq('post_id', postId).order('position', { ascending: true })
   if (error) throw dbError(error)
   return byPosition((data ?? []) as PostComment[])

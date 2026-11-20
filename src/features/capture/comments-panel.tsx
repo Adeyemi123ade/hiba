@@ -88,7 +88,10 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   const resumedOnLoad = useRef(false)
 
   const comments = query.data ?? []
-  const queue = comments.filter((c) => c.included && c.status === 'approved')
+  // Comments with a due time belong to Hiba's background publisher (scheduled posts); this page leaves them alone.
+  const browserQueued = (c: PostComment) => c.included && c.status === 'approved' && !c.due_at
+  const queue = comments.filter(browserQueued)
+  const serverQueued = comments.filter((c) => c.included && c.status === 'approved' && c.due_at).length
   const published = postStatus === 'published'
   const anyLocked = comments.some(isLocked)
 
@@ -148,7 +151,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   }, [query.isSuccess, published, queue.length, runner])
 
   const postNext = useCallback(async () => {
-    const current = (queryClient.getQueryData<PostComment[]>(key) ?? []).filter((c) => c.included && c.status === 'approved')
+    const current = (queryClient.getQueryData<PostComment[]>(key) ?? []).filter(browserQueued)
     const next = current[0]
     if (!next) { setRunner('done'); setNextAt(null); return }
     setRunner('posting')
@@ -157,7 +160,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     try {
       await postLinkedInComment(next.id)
       const fresh = await refresh()
-      if (fresh.some((c) => c.included && c.status === 'approved')) schedule()
+      if (fresh.some(browserQueued)) schedule()
       else { setRunner('done'); setNotice('All approved comments are posted on LinkedIn.') }
     } catch (e) {
       // Never skip a failed comment: stop here and say exactly what happened.
@@ -279,7 +282,9 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     if (published) schedule()
   }, 'all', published
     ? 'Approved. Hiba is posting them under your LinkedIn post, one by one. Keep this page open.'
-    : 'Approved. When you post this to LinkedIn from Hiba, these comments are posted under it automatically, one by one. Keep this page open after posting.')
+    : postStatus === 'scheduled'
+      ? 'Approved. Hiba posts these under your post automatically after it goes live. You do not need to keep this page open.'
+      : 'Approved. When you post this to LinkedIn from Hiba, these comments are posted under it automatically, one by one. Keep this page open after posting.')
 
   const withdraw = () => run(async () => {
     clearTimer()
@@ -342,8 +347,14 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       </h2>
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
         Short comments (20 to 50 words) that Hiba posts under your own LinkedIn post, so the conversation goes deeper.
-        Only comments you approve are posted, one by one, 15 to 60 seconds apart, after your post is live. Keep this page open while they post.
+        Only comments you approve are posted, one by one, 15 to 60 seconds apart, after your post is live.
+        {postStatus === 'scheduled' ? ' For a scheduled post, Hiba posts them by itself, even if you are offline.' : ' Keep this page open while they post.'}
       </p>
+      {serverQueued > 0 && published && (
+        <p role="status" className="mt-2 rounded-[var(--radius-sm)] bg-sky-50 px-2 py-1.5 text-sm text-sky-900">
+          Hiba is posting {serverQueued === 1 ? 'the last approved comment' : `${serverQueued} approved comments`} under your post automatically, 15 to 60 seconds apart.
+        </p>
+      )}
 
       {!online && <p role="status" className="mt-3 text-sm text-amber-800">You are offline. Your comments are shown, but changes and posting need a connection.</p>}
       {outdated && (
