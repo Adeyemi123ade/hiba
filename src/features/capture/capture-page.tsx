@@ -12,6 +12,7 @@ import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
+import { SCHEDULE_ERROR_TEXT, ScheduleError, backToApproved } from '@/features/content/api/schedule-service'
 import { PostImages } from '@/features/capture/post-image'
 import { imageFields, imagesOf } from '@/features/content/api/image-service'
 import { AnglesPanel } from '@/features/capture/angles-panel'
@@ -637,7 +638,18 @@ export function CapturePage() {
                   </>
                 )}
               </div>
-              {active.platform === 'linkedin' && ideaId && (active.status === 'approved' || active.status === 'published') && (
+              {active.platform === 'linkedin' && active.status === 'failed' && (
+                <BackToApproved
+                  postId={active.id}
+                  online={online}
+                  onDone={() => {
+                    setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'approved', failure_reason: null, scheduled_for: null } : p)))
+                    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+                  }}
+                />
+              )}
+              {active.platform === 'linkedin' && ideaId && (active.status === 'approved' || active.status === 'published'
+                || (active.status === 'scheduled' && Boolean(active.scheduled_for))) && (
                 <LinkedInPublishPanel
                   postId={active.id}
                   ideaId={ideaId}
@@ -646,6 +658,13 @@ export function CapturePage() {
                   images={imagesOf(active)}
                   followUps={followUps}
                   publishedUrl={active.external_url ?? null}
+                  scheduledFor={active.status === 'scheduled' ? active.scheduled_for : null}
+                  onScheduleChange={(at) => {
+                    setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: at ? 'scheduled' : 'approved', scheduled_for: at } : p)))
+                    queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+                    queryClient.invalidateQueries({ queryKey: ['calendar'] })
+                    queryClient.invalidateQueries({ queryKey: ['library'] })
+                  }}
                   onPublished={(url) => {
                     setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'published', external_url: url } : p)))
                     queryClient.invalidateQueries({ queryKey: ['home-posts'] })
@@ -863,6 +882,34 @@ export function CapturePage() {
           </button>
         </div>
       </Card>
+    </div>
+  )
+}
+
+/** A LinkedIn post that failed goes back to Approved, so it can be posted or scheduled again. */
+function BackToApproved({ postId, online, onDone }: { postId: string; online: boolean; onDone: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  async function run() {
+    setBusy(true)
+    setError(null)
+    try {
+      await backToApproved(postId)
+      onDone()
+    } catch (e) {
+      setError(SCHEDULE_ERROR_TEXT[e instanceof ScheduleError ? e.code : 'unknown'])
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mt-3">
+      <button type="button" onClick={run} disabled={busy || !online}
+        className="inline-flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50">
+        {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : null} Try again: move back to Approved
+      </button>
+      <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Then you can post it now or schedule it again. Check LinkedIn first if the message above asks you to.</p>
+      {error && <p role="alert" className="mt-1 text-sm text-[var(--color-error)]">{error}</p>}
     </div>
   )
 }

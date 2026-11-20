@@ -195,13 +195,15 @@ export function DashboardHomePage() {
               <ul>
                 {upcoming.map((p) => (
                   <li key={p.id} className="border-t border-[var(--color-border)] py-2 text-sm first:border-t-0">
-                    {platformName(p.platform)} · {new Date(p.scheduled_for as string).toLocaleString()}
+                    <Link to={`/dashboard/capture?idea=${p.idea_id}`} className="underline">
+                      {platformName(p.platform)} · {new Date(p.scheduled_for as string).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </Link>
                   </li>
                 ))}
               </ul>
             ) : (
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Nothing scheduled yet. Scheduling is coming soon; for now you can post approved LinkedIn drafts straight away.
+                Nothing scheduled this week. Open an approved LinkedIn post and choose Schedule for later, and Hiba posts it for you.
               </p>
             )}
           </Card>
