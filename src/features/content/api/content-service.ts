@@ -358,10 +358,18 @@ export async function deletePostForever(post: Pick<Post, 'id' | 'image_path'>): 
   if (offlineNow()) throw new ContentError('offline')
   // Every image on the post, not only the first one the Posts page knows about.
   const { data: row } = await supabase.from('posts').select('images').eq('id', post.id).maybeSingle()
-  const paths = [...new Set([...imagesOf({ images: row?.images as PostImageItem[] | null }).map((i) => i.path), ...(post.image_path ? [post.image_path] : [])])]
+  const mine = [...new Set([...imagesOf({ images: row?.images as PostImageItem[] | null }).map((i) => i.path), ...(post.image_path ? [post.image_path] : [])])]
+  // An image another post also uses stays, so that post keeps it.
+  const { data: others } = mine.length
+    ? await supabase.from('posts').select('images').neq('id', post.id).not('image_path', 'is', null)
+    : { data: [] }
+  const shared = new Set(((others ?? []) as { images: PostImageItem[] | null }[]).flatMap((o) => (o.images ?? []).map((i) => i.path)))
+  const paths = mine.filter((p) => !shared.has(p))
   if (paths.length) {
     const { error } = await supabase.storage.from(IMAGE_BUCKET).remove(paths)
     if (error) throw offlineNow() ? new ContentError('offline') : new ContentError('image_delete_failed')
+    // Their Images library entries go too (before migration 0018 there are none).
+    await supabase.from('images').delete().in('path', paths)
   }
   const { data, error } = await supabase.from('posts').delete().eq('id', post.id).eq('status', 'archived').select('id')
   if (error) throw toContentError(error)

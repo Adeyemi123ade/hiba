@@ -1,3 +1,4 @@
+import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 /** HPD-60 / HPD-109: images live in a private bucket, in a folder only their owner can use. */
@@ -14,7 +15,7 @@ export interface PostImageItem {
   alt: string | null
 }
 
-export type ImageErrorCode = 'type' | 'size' | 'count' | 'offline' | 'upload' | 'save' | 'session'
+export type ImageErrorCode = 'type' | 'size' | 'count' | 'offline' | 'upload' | 'save' | 'session' | 'in_use'
 
 export const IMAGE_ERROR_TEXT: Record<ImageErrorCode, string> = {
   type: 'Please choose JPG, PNG or GIF images.',
@@ -24,6 +25,7 @@ export const IMAGE_ERROR_TEXT: Record<ImageErrorCode, string> = {
   upload: 'The image could not be uploaded. Please try again.',
   save: 'The change could not be saved to the post. Please try again.',
   session: 'Your session expired. Sign in again, then try again.',
+  in_use: 'This image is on a scheduled post. Change or cancel that post first.',
 }
 
 export class ImageError extends Error {
@@ -87,6 +89,7 @@ export async function addImages(userId: string, postId: string, current: PostIma
     for (const f of files) added.push(await upload(userId, f))
     const next = [...current, ...added.map((path) => ({ path, alt: null }))]
     await saveList(postId, next)
+    await recordInLibrary(userId, added.map((path, i) => ({ path, bytes: files[i].size })))
     return next
   } catch (e) {
     await removeFiles(added)
@@ -94,7 +97,7 @@ export async function addImages(userId: string, postId: string, current: PostIma
   }
 }
 
-/** Swaps one image for a new file, keeping its place. The old file is deleted afterwards. */
+/** Swaps one image for a new file, keeping its place. The old one stays in the Images library. */
 export async function replaceImage(userId: string, postId: string, current: PostImageItem[], index: number, file: File): Promise<PostImageItem[]> {
   const problem = checkImage(file)
   if (problem) throw new ImageError(problem)
@@ -107,16 +110,26 @@ export async function replaceImage(userId: string, postId: string, current: Post
     await removeFiles([path])
     throw e
   }
-  await removeFiles([current[index].path])
+  await recordInLibrary(userId, [{ path, bytes: file.size }])
   return next
 }
 
-/** Takes one image off the post, then deletes its file. */
+/** Takes one image off the post. It stays in the Images library. */
 export async function removeImage(postId: string, current: PostImageItem[], index: number): Promise<PostImageItem[]> {
   if (offline()) throw new ImageError('offline')
   const next = current.filter((_, i) => i !== index)
   await saveList(postId, next)
-  await removeFiles([current[index].path])
+  return next
+}
+
+/** Adds library images to the end of the post's images (skipping ones already on it). */
+export async function attachLibraryImages(postId: string, current: PostImageItem[], picked: Pick<LibraryImage, 'path' | 'alt'>[]): Promise<PostImageItem[]> {
+  const fresh = picked.filter((p) => !current.some((c) => c.path === p.path))
+  if (!fresh.length) return current
+  if (current.length + fresh.length > IMAGE_MAX_COUNT) throw new ImageError('count')
+  if (offline()) throw new ImageError('offline')
+  const next = [...current, ...fresh.map((p) => ({ path: p.path, alt: p.alt ?? null }))]
+  await saveList(postId, next)
   return next
 }
 
@@ -141,4 +154,153 @@ export async function imagePreviewUrl(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(IMAGE_BUCKET).createSignedUrl(path, 60 * 60)
   if (error || !data?.signedUrl) throw new ImageError('upload')
   return data.signedUrl
+}
+
+// ---------- Images library (H07: HPD-59, 61, 62, 109) ----------
+
+export interface LibraryImage {
+  id: string
+  path: string
+  source: 'upload' | 'generated'
+  prompt: string | null
+  alt: string | null
+  width: number | null
+  height: number | null
+  bytes: number | null
+  created_at: string
+}
+
+/** A post that uses a library image. */
+export interface ImageUse {
+  postId: string
+  ideaId: string
+  status: string
+  platform: string
+}
+
+/** Every new file goes into the library. Before migration 0018 there is no library: skip quietly. */
+async function recordInLibrary(userId: string, files: { path: string; bytes: number }[]) {
+  if (!files.length) return
+  const { error } = await supabase.from('images').insert(files.map((f) => ({ user_id: userId, path: f.path, source: 'upload', bytes: f.bytes })))
+  if (error) console.warn('Image not added to the library', error.message)
+}
+
+export async function fetchLibrary(): Promise<{ images: LibraryImage[]; uses: Record<string, ImageUse[]> }> {
+  const [imgs, posts] = await Promise.all([
+    supabase.from('images').select('id, path, source, prompt, alt, width, height, bytes, created_at').order('created_at', { ascending: false }).limit(500),
+    supabase.from('posts').select('id, idea_id, platform, status, images').not('image_path', 'is', null).limit(1000),
+  ])
+  if (imgs.error) throw new ImageError(offline() ? 'offline' : /jwt/i.test(imgs.error.message) ? 'session' : 'save')
+  const uses: Record<string, ImageUse[]> = {}
+  for (const p of (posts.data ?? []) as { id: string; idea_id: string; platform: string; status: string; images: PostImageItem[] | null }[]) {
+    for (const img of p.images ?? []) {
+      ;(uses[img.path] ??= []).push({ postId: p.id, ideaId: p.idea_id, status: p.status, platform: p.platform })
+    }
+  }
+  return { images: (imgs.data ?? []) as LibraryImage[], uses }
+}
+
+/** Uploads files straight to the library (not onto a post). All or nothing. */
+export async function uploadToLibrary(userId: string, files: File[]): Promise<void> {
+  for (const f of files) {
+    const problem = checkImage(f)
+    if (problem) throw new ImageError(problem)
+  }
+  if (offline()) throw new ImageError('offline')
+  const added: string[] = []
+  try {
+    for (const f of files) added.push(await upload(userId, f))
+    const { error } = await supabase.from('images').insert(added.map((path, i) => ({ user_id: userId, path, source: 'upload', bytes: files[i].size })))
+    if (error) throw new ImageError('save')
+  } catch (e) {
+    await removeFiles(added)
+    throw e instanceof ImageError ? e : new ImageError('upload')
+  }
+}
+
+export async function saveLibraryAlt(id: string, alt: string): Promise<void> {
+  const { error } = await supabase.from('images').update({ alt: alt.trim().slice(0, IMAGE_ALT_MAX) || null }).eq('id', id)
+  if (error) throw new ImageError(offline() ? 'offline' : 'save')
+}
+
+/** Statuses where Hiba is about to post the image: it must not disappear from under it. */
+const LOCKED = ['scheduled']
+
+/**
+ * Deletes an image for good: takes it off every post that uses it (never a scheduled one), then
+ * removes the file and the library entry. Published posts keep their copy on LinkedIn.
+ */
+export async function deleteFromLibrary(image: LibraryImage, uses: ImageUse[]): Promise<void> {
+  if (uses.some((u) => LOCKED.includes(u.status))) throw new ImageError('in_use')
+  if (offline()) throw new ImageError('offline')
+  for (const u of uses) {
+    const { data, error } = await supabase.from('posts').select('images').eq('id', u.postId).maybeSingle()
+    if (error) throw new ImageError('save')
+    const list = ((data?.images ?? []) as PostImageItem[]).filter((i) => i.path !== image.path)
+    await saveList(u.postId, list)
+  }
+  const { error: fileError } = await supabase.storage.from(IMAGE_BUCKET).remove([image.path])
+  if (fileError) throw new ImageError(offline() ? 'offline' : 'save')
+  const { error } = await supabase.from('images').delete().eq('id', image.id)
+  if (error) throw new ImageError('save')
+}
+
+/** Short-lived private links for many images at once (one request). */
+export async function previewUrls(paths: string[]): Promise<Record<string, string>> {
+  if (!paths.length) return {}
+  const { data, error } = await supabase.storage.from(IMAGE_BUCKET).createSignedUrls(paths, 60 * 60)
+  if (error) throw new ImageError('upload')
+  const out: Record<string, string> = {}
+  for (const d of data ?? []) if (d.path && d.signedUrl) out[d.path] = d.signedUrl
+  return out
+}
+
+// ---------- Generate with AI (HPD-58) ----------
+
+export const IMAGE_STYLES = [
+  { id: 'photo', label: 'Photo' },
+  { id: 'illustration', label: 'Illustration' },
+  { id: 'minimal', label: 'Minimal' },
+  { id: '3d', label: '3D' },
+] as const
+export const IMAGE_SHAPES = [
+  { id: 'landscape', label: 'Wide (best for LinkedIn)' },
+  { id: 'square', label: 'Square' },
+  { id: 'portrait', label: 'Tall' },
+] as const
+export type ImageStyle = (typeof IMAGE_STYLES)[number]['id']
+export type ImageShape = (typeof IMAGE_SHAPES)[number]['id']
+
+export class GenerateError extends Error {
+  readonly detail: string
+  constructor(detail: string) {
+    super(detail)
+    this.detail = detail
+  }
+}
+
+/** A starting description from the post: its first meaningful lines, without hashtags. */
+export function describeFromPost(text: string): string {
+  const lines = text.split('\n').map((l) => l.replace(/#\w+/g, '').trim()).filter((l) => l.length > 3)
+  return lines.slice(0, 3).join(' ').slice(0, 400)
+}
+
+/** Creates an image with AI; it is saved to the library. Takes 10 to 60 seconds. */
+export async function generateImage(input: { description: string; style: ImageStyle; shape: ImageShape }): Promise<LibraryImage> {
+  if (offline()) throw new GenerateError(IMAGE_ERROR_TEXT.offline)
+  const { data, error } = await supabase.functions.invoke<{ image: LibraryImage }>('generate-image', { body: input })
+  if (error) {
+    let detail = ''
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const payload = (await (error.context as Response).json()) as { error?: string; detail?: string }
+        detail = payload.detail ?? (payload.error === 'unauthorized' ? IMAGE_ERROR_TEXT.session : '')
+      } catch {
+        // not JSON
+      }
+    }
+    throw new GenerateError(detail || (offline() ? IMAGE_ERROR_TEXT.offline : 'The image could not be created just now. Please try again.'))
+  }
+  if (!data?.image) throw new GenerateError('The image could not be created just now. Please try again.')
+  return data.image
 }
