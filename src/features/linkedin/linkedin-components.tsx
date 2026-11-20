@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLinkedInConnection } from '@/features/linkedin/use-linkedin-connection'
 import { useLinkedInNotice } from '@/features/linkedin/use-linkedin-notice'
-import { ExternalLink, Loader2, Send } from 'lucide-react'
+import { CalendarClock, ExternalLink, Loader2, Send } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import {
   LINKEDIN_ERROR_TEXT, LinkedInError, disconnectLinkedIn, isExpired, linkedInFunctionIsCurrent, publishToLinkedIn,
@@ -10,6 +10,10 @@ import {
 } from '@/features/linkedin/linkedin-service'
 import { imagePreviewUrl, type PostImageItem } from '@/features/content/api/image-service'
 import { fetchComments, type PostComment } from '@/features/content/api/comments-service'
+import {
+  SCHEDULE_ERROR_TEXT, ScheduleError, cancelSchedule, checkScheduleTime, formatWhen, fromLocalInput, schedulePost,
+  suggestedTime, timeZoneName, toLocalInput, type ScheduleErrorCode,
+} from '@/features/content/api/schedule-service'
 
 const primaryBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50'
@@ -151,7 +155,7 @@ interface Preview {
   commentsFailed: boolean
 }
 
-export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished, text, images, followUps }: {
+export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished, text, images, followUps, scheduledFor, onScheduleChange }: {
   postId: string
   ideaId: string
   publishedUrl: string | null
@@ -163,6 +167,10 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   images: PostImageItem[]
   /** Whether follow-up comments are switched on in Settings. */
   followUps: boolean
+  /** Set when the post is scheduled: Hiba posts it then, even if the person is offline. */
+  scheduledFor: string | null
+  /** After scheduling, moving or cancelling: the new time, or null when back to Approved. */
+  onScheduleChange: (scheduledFor: string | null) => void
 }) {
   const connection = useLinkedInConnection()
   const { busy: connecting, error: connectError, connect } = useConnectAction(`/dashboard/capture?idea=${ideaId}`)
@@ -174,6 +182,10 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   const [preview, setPreview] = useState<Preview | null>(null)
   const [checking, setChecking] = useState(false)
   const [imageMissing, setImageMissing] = useState(false)
+  const [mode, setMode] = useState<'now' | 'schedule'>('now')
+  const [when, setWhen] = useState(() => toLocalInput(suggestedTime()))
+  const [scheduling, setScheduling] = useState(false)
+  const [scheduleError, setScheduleError] = useState<ScheduleErrorCode | null>(null)
 
   if (isPublished) {
     return (
@@ -192,6 +204,28 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
         )}
       </div>
     )
+  }
+
+  if (scheduledFor) {
+    return <ScheduledBox postId={postId} scheduledFor={scheduledFor} followUps={followUps} onChange={onScheduleChange} />
+  }
+
+  async function schedule() {
+    const at = fromLocalInput(when)
+    const problem = checkScheduleTime(at)
+    if (problem) { setScheduleError(problem); return }
+    setScheduling(true)
+    setScheduleError(null)
+    try {
+      const saved = await schedulePost(postId, at!)
+      setConfirming(false)
+      setPreview(null)
+      onScheduleChange(saved)
+    } catch (e) {
+      setScheduleError(e instanceof ScheduleError ? e.code : 'unknown')
+    } finally {
+      setScheduling(false)
+    }
   }
 
   async function publish() {
@@ -224,7 +258,9 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
 
   // Before anything is posted: check the server function is up to date, and gather the image and
   // the approved comments, so the person sees exactly what will go out (master prompt, section 13).
-  async function openPreview() {
+  async function openPreview(next: 'now' | 'schedule') {
+    setMode(next)
+    setScheduleError(null)
     setChecking(true)
     setError(null)
     try {
@@ -277,11 +313,17 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   return (
     <div className="mt-3">
       {!confirming ? (
-        <button type="button" className={primaryBtn} onClick={openPreview} disabled={checking}>
-          {checking ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
-          {checking ? 'Preparing the preview...' : 'Preview and post to LinkedIn'}
-        </button>
-      ) : preview && !preview.current ? (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={primaryBtn} onClick={() => openPreview('now')} disabled={checking}>
+            {checking && mode === 'now' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+            {checking && mode === 'now' ? 'Preparing the preview...' : 'Preview and post now'}
+          </button>
+          <button type="button" className={outlineBtn} onClick={() => openPreview('schedule')} disabled={checking}>
+            {checking && mode === 'schedule' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <CalendarClock size={16} aria-hidden="true" />}
+            {checking && mode === 'schedule' ? 'Preparing the preview...' : 'Schedule for later'}
+          </button>
+        </div>
+      ) : preview && !preview.current && mode === 'now' ? (
         <div role="alert" className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 p-3 text-sm text-red-800">
           <p className="font-semibold">Hiba cannot post right now.</p>
           <p className="mt-1">
@@ -293,8 +335,20 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
       ) : preview ? (
         <div role="alertdialog" aria-label="Preview your LinkedIn post" className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
           <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-            This is exactly what will be posted <strong>publicly</strong> on your LinkedIn profile{c.name ? ` (${c.name})` : ''}:
+            This is exactly what will be posted <strong>publicly</strong> on your LinkedIn profile{c.name ? ` (${c.name})` : ''}
+            {mode === 'schedule' ? ' at the time you choose' : ''}:
           </p>
+          {mode === 'schedule' && (
+            <div className="mt-2">
+              <label htmlFor={`when-${postId}`} className="block text-sm font-semibold text-[var(--color-text-primary)]">When should Hiba post it?</label>
+              <input id={`when-${postId}`} type="datetime-local" value={when} min={toLocalInput(new Date(Date.now() + 5 * 60_000))}
+                onChange={(e) => { setWhen(e.target.value); setScheduleError(null) }}
+                className="mt-1 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] px-2 py-1.5 text-sm" />
+              <p className="mt-0.5 text-xs text-[var(--color-text-secondary)]">
+                In your time zone ({timeZoneName()}). Hiba posts it then, even if you are offline.
+              </p>
+            </div>
+          )}
           <div className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white p-3">
             <p className="whitespace-pre-line break-words text-sm text-[var(--color-text-primary)]">{text}</p>
             {images.length > 0 && (
@@ -326,12 +380,16 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
               ) : preview.approved.length > 0 ? (
                 <>
                   <p className="font-semibold text-[var(--color-text-primary)]">
-                    Then these {preview.approved.length} approved comment{preview.approved.length === 1 ? ' is' : 's are'} posted under it, one by one, 15 to 60 seconds apart:
+                    Then {preview.approved.length === 1 ? 'this approved comment is' : `these ${preview.approved.length} approved comments are`} posted under it, one by one, 15 to 60 seconds apart:
                   </p>
                   <ol className="mt-1 list-decimal space-y-1 pl-5 text-[var(--color-text-primary)]">
                     {preview.approved.map((cm) => <li key={cm.id} className="whitespace-pre-line break-words">{cm.body}</li>)}
                   </ol>
-                  <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Keep this page open after posting while the comments go out.</p>
+                  <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+                    {mode === 'schedule'
+                      ? 'Hiba posts them automatically after your post goes live. You do not need to keep this page open.'
+                      : 'Keep this page open after posting while the comments go out.'}
+                  </p>
                 </>
               ) : (
                 <p className="text-[var(--color-text-secondary)]">No follow-up comments will be posted.</p>
@@ -347,11 +405,18 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
 
           <p className="mt-3 text-xs text-[var(--color-text-secondary)]">Hiba cannot delete the post from LinkedIn later.</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className={primaryBtn} onClick={publish} disabled={publishing}>
-              {publishing ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Posting...</> : 'Yes, post it'}
-            </button>
-            <button type="button" className={outlineBtn} onClick={() => { setConfirming(false); setPreview(null) }} disabled={publishing}>Not yet</button>
+            {mode === 'schedule' ? (
+              <button type="button" className={primaryBtn} onClick={schedule} disabled={scheduling}>
+                {scheduling ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Scheduling...</> : 'Schedule it'}
+              </button>
+            ) : (
+              <button type="button" className={primaryBtn} onClick={publish} disabled={publishing}>
+                {publishing ? <><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Posting...</> : 'Yes, post it'}
+              </button>
+            )}
+            <button type="button" className={outlineBtn} onClick={() => { setConfirming(false); setPreview(null) }} disabled={publishing || scheduling}>Not yet</button>
           </div>
+          {scheduleError && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{SCHEDULE_ERROR_TEXT[scheduleError]}</p>}
           {publishing && slow && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">Still waiting for LinkedIn. Please keep this page open.</p>}
         </div>
       ) : null}
@@ -361,6 +426,88 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
           {error.detail && <p className="text-xs">{error.detail}</p>}
         </div>
       )}
+    </div>
+  )
+}
+
+/** A scheduled LinkedIn post: when it goes out, move it, or cancel (HPD-69, HPD-70). */
+function ScheduledBox({ postId, scheduledFor, followUps, onChange }: {
+  postId: string
+  scheduledFor: string
+  followUps: boolean
+  onChange: (scheduledFor: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [when, setWhen] = useState(() => toLocalInput(new Date(scheduledFor)))
+  const [confirmCancel, setConfirmCancel] = useState(false)
+  const [busy, setBusy] = useState<'move' | 'cancel' | null>(null)
+  const [error, setError] = useState<ScheduleErrorCode | null>(null)
+
+  async function move() {
+    const at = fromLocalInput(when)
+    const problem = checkScheduleTime(at)
+    if (problem) { setError(problem); return }
+    setBusy('move')
+    setError(null)
+    try {
+      onChange(await schedulePost(postId, at!))
+      setEditing(false)
+    } catch (e) {
+      setError(e instanceof ScheduleError ? e.code : 'unknown')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function cancel() {
+    setBusy('cancel')
+    setError(null)
+    try {
+      await cancelSchedule(postId)
+      onChange(null)
+    } catch (e) {
+      setError(e instanceof ScheduleError ? e.code : 'unknown')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-[var(--radius-md)] border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950" role="status">
+      <p className="flex items-center gap-2 font-semibold">
+        <CalendarClock size={18} aria-hidden="true" /> Hiba will post this on LinkedIn on {formatWhen(scheduledFor)}.
+      </p>
+      <p className="mt-1 text-xs">
+        It goes out even if you are offline.{followUps ? ' Approved follow-up comments follow automatically, 15 to 60 seconds apart.' : ''}
+      </p>
+      {editing ? (
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <label className="text-xs font-semibold">
+            New time ({timeZoneName()})
+            <input type="datetime-local" value={when} min={toLocalInput(new Date(Date.now() + 5 * 60_000))}
+              onChange={(e) => { setWhen(e.target.value); setError(null) }}
+              className="mt-1 block rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-white px-2 py-1.5 text-sm font-normal" />
+          </label>
+          <button type="button" className={primaryBtn} onClick={move} disabled={busy !== null}>
+            {busy === 'move' ? 'Saving...' : 'Save new time'}
+          </button>
+          <button type="button" className="font-semibold underline" onClick={() => { setEditing(false); setError(null) }}>Keep the old time</button>
+        </div>
+      ) : confirmCancel ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          Cancel the scheduled time? The post goes back to Approved and nothing is posted.
+          <button type="button" className={outlineBtn} onClick={cancel} disabled={busy !== null}>
+            {busy === 'cancel' ? 'Cancelling...' : 'Yes, cancel it'}
+          </button>
+          <button type="button" className="font-semibold underline" onClick={() => setConfirmCancel(false)}>Keep it scheduled</button>
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button type="button" className={outlineBtn} onClick={() => setEditing(true)}>Change time</button>
+          <button type="button" className={outlineBtn} onClick={() => setConfirmCancel(true)}>Cancel schedule</button>
+        </div>
+      )}
+      {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{SCHEDULE_ERROR_TEXT[error]}</p>}
     </div>
   )
 }

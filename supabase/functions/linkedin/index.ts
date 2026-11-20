@@ -11,13 +11,16 @@
 // Secrets: LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, TOKEN_ENCRYPTION_KEY, APP_ORIGINS
 // Optional: LINKEDIN_REDIRECT_URI (default: <project>/functions/v1/linkedin-callback)
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import {
+  b64, createComment, createPost, decryptToken, encryptToken, encryptionKey, linkedinFetch, postImages, postTooLong, postUrl,
+  uploadImages,
+} from '../_shared/linkedin.ts'
 
 const STATE_MAX_AGE_MS = 10 * 60 * 1000
 const FUNCTION_VERSION = 4
 const PUBLISH_LIMIT_PER_HOUR = 10
 // Follow-up comments (owner decision, 19 Nov 2026): at most 10 per post, so 30 an hour is plenty.
 const COMMENT_LIMIT_PER_HOUR = 30
-const LINKEDIN_TIMEOUT_MS = 20_000
 const SCOPES = 'openid profile w_member_social'
 
 const cors = {
@@ -54,132 +57,12 @@ const fail = (status: number, code: ErrorCode, detail?: string) => reply(status,
 const ORIGINS = (Deno.env.get('APP_ORIGINS') ?? 'http://localhost:5173')
   .split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean)
 
-// ---------- encryption (AES-GCM, key = 32 random bytes, base64) ----------
-const b64 = {
-  enc: (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)),
-  dec: (text: string): Uint8Array<ArrayBuffer> => {
-    const raw = atob(text)
-    const out = new Uint8Array(raw.length)
-    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i)
-    return out
-  },
-}
-
-async function encryptionKey(): Promise<CryptoKey | null> {
-  const raw = Deno.env.get('TOKEN_ENCRYPTION_KEY')
-  if (!raw) return null
-  let bytes: Uint8Array<ArrayBuffer>
-  try {
-    bytes = b64.dec(raw.trim())
-  } catch {
-    return null
-  }
-  if (bytes.length !== 32) return null
-  return crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt'])
-}
-
-export async function encryptToken(key: CryptoKey, token: string): Promise<string> {
-  const iv = crypto.getRandomValues(new Uint8Array(12))
-  const data = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(token)))
-  return `v1:${b64.enc(iv)}:${b64.enc(data)}`
-}
-
-export async function decryptToken(key: CryptoKey, stored: string): Promise<string | null> {
-  const [version, iv, data] = stored.split(':')
-  if (version !== 'v1' || !iv || !data) return null
-  try {
-    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64.dec(iv) }, key, b64.dec(data))
-    return new TextDecoder().decode(plain)
-  } catch {
-    return null
-  }
-}
-
 function base64url(text: string) {
   return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 function fromBase64url(text: string) {
   const s = text.replace(/-/g, '+').replace(/_/g, '/')
   return atob(s + '='.repeat((4 - (s.length % 4)) % 4))
-}
-
-const IMAGE_BUCKET = 'post-images'
-const IMAGE_MAX_BYTES = 5 * 1024 * 1024
-const IMAGE_MAX_COUNT = 9
-
-type ImageResult = { asset: string } | { error: ErrorCode; status: number; detail?: string }
-
-/** The only part of the database client the image upload needs. */
-interface StorageReader {
-  storage: { from: (bucket: string) => { download: (path: string) => Promise<{ data: Blob | null; error: unknown }> } }
-}
-
-/**
- * Sends one image to LinkedIn (register upload, then upload the bytes) and returns its asset id.
- * The image is read from the person's own private storage folder, as that person (RLS applies).
- */
-async function uploadImageToLinkedIn(
-  db: StorageReader, accessToken: string, memberId: string, path: string,
-): Promise<ImageResult> {
-  const { data: file, error } = await db.storage.from(IMAGE_BUCKET).download(path)
-  if (error || !file) return { error: 'image_failed', status: 502, detail: 'Hiba could not read your image. Remove it and add it again.' }
-  if (file.size > IMAGE_MAX_BYTES) return { error: 'image_failed', status: 400, detail: 'The image is larger than 5 MB.' }
-
-  const register = await linkedinFetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
-    body: JSON.stringify({
-      registerUploadRequest: {
-        recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
-        owner: `urn:li:person:${memberId}`,
-        serviceRelationships: [{ relationshipType: 'OWNER', identifier: 'urn:li:userGeneratedContent' }],
-      },
-    }),
-  }).catch(() => null)
-  if (!register) return { error: 'image_failed', status: 502, detail: 'LinkedIn did not answer while preparing the image.' }
-  if (register.status === 401) return { error: 'linkedin_expired', status: 401 }
-  if (!register.ok) {
-    console.error('LinkedIn registerUpload failed', register.status, (await register.text()).slice(0, 300))
-    return { error: 'image_failed', status: 502, detail: `LinkedIn would not accept the image (${register.status}).` }
-  }
-  const reg = await register.json() as {
-    value?: { asset?: string; uploadMechanism?: Record<string, { uploadUrl?: string }> }
-  }
-  const asset = reg.value?.asset
-  const uploadUrl = reg.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl
-  if (!asset || !uploadUrl) return { error: 'image_failed', status: 502, detail: 'LinkedIn did not return an upload address.' }
-
-  const upload = await linkedinFetch(uploadUrl, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': file.type || 'application/octet-stream' },
-    body: new Uint8Array(await file.arrayBuffer()),
-  }).catch(() => null)
-  if (!upload || !upload.ok) {
-    console.error('LinkedIn image upload failed', upload?.status)
-    return { error: 'image_failed', status: 502, detail: 'Uploading the image to LinkedIn did not work.' }
-  }
-  return { asset }
-}
-
-/** The post's images in order: the list, or (rows from before migration 0016) the single image. */
-function postImages(post: { images?: unknown; image_path?: string | null; image_alt?: string | null }): { path: string; alt: string | null }[] {
-  const list = Array.isArray(post.images)
-    ? post.images
-      .filter((x): x is { path: string; alt?: unknown } => Boolean(x) && typeof (x as { path?: unknown }).path === 'string')
-      .map((x) => ({ path: x.path, alt: typeof x.alt === 'string' && x.alt.trim() ? x.alt.trim() : null }))
-    : []
-  if (list.length) return list.slice(0, IMAGE_MAX_COUNT)
-  return post.image_path ? [{ path: post.image_path, alt: post.image_alt ? String(post.image_alt) : null }] : []
-}
-
-async function linkedinFetch(url: string, init: RequestInit) {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), LINKEDIN_TIMEOUT_MS)
-  try {
-    return await fetch(url, { ...init, signal: ctrl.signal })
-  } finally {
-    clearTimeout(timer)
-  }
 }
 
 Deno.serve(async (req) => withOrigin(await handle(req), req.headers.get('origin')))
@@ -310,15 +193,17 @@ async function handle(req: Request): Promise<Response> {
     const postId = typeof input.postId === 'string' ? input.postId : ''
     if (!/^[0-9a-f-]{36}$/i.test(postId)) return fail(400, 'bad_request')
 
-    const { data: post } = await db.from('posts')
-      .select('id, platform, status, body, external_id, external_url, image_path, image_alt, images').eq('id', postId).maybeSingle()
+    const cols = 'id, platform, status, body, external_id, external_url, image_path, image_alt'
+    // deno-lint-ignore no-explicit-any
+    let { data: post, error: postError }: { data: any; error: unknown } = await db.from('posts').select(`${cols}, images`).eq('id', postId).maybeSingle()
+    // Before migration 0016 there is no image list yet: read the single image only.
+    if (postError) ({ data: post } = await db.from('posts').select(cols).eq('id', postId).maybeSingle())
     if (!post || post.platform !== 'linkedin') return fail(404, 'not_found')
     if (post.status === 'published') return fail(409, 'already_published', post.external_url ?? undefined)
     if (post.status !== 'approved') return fail(409, 'not_approved')
     const text = String(post.body ?? '').trim()
     if (!text) return fail(400, 'bad_request')
-    // Owner rule: LinkedIn posts are at most 200 words (LinkedIn itself allows 3000 characters).
-    if (text.length > 3000 || text.split(/\s+/).length > 200) return fail(400, 'too_long')
+    if (postTooLong(text)) return fail(400, 'too_long')
 
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString()
     const { count } = await db.from('posts').select('id', { count: 'exact', head: true })
@@ -344,58 +229,29 @@ async function handle(req: Request): Promise<Response> {
     const images = postImages(post)
     let media: Record<string, unknown>[] | null = null
     if (images.length) {
-      media = []
-      for (const [i, img] of images.entries()) {
-        const image = await uploadImageToLinkedIn(db, accessToken, conn.member_id, img.path)
-        if ('error' in image) {
-          await release()
-          const which = images.length > 1 ? `Image ${i + 1}: ` : ''
-          return fail(image.status, image.error, image.detail ? `${which}${image.detail}` : undefined)
-        }
-        media.push({
-          status: 'READY',
-          media: image.asset,
-          ...(img.alt ? { description: { text: img.alt.slice(0, 300) } } : {}),
-        })
+      const uploaded = await uploadImages(db, accessToken, conn.member_id, images)
+      if ('error' in uploaded) {
+        await release()
+        return fail(uploaded.status, uploaded.error, uploaded.detail)
       }
+      media = uploaded.media
     }
 
-    let res: Response
-    try {
-      res = await linkedinFetch('https://api.linkedin.com/v2/ugcPosts', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          'X-Restli-Protocol-Version': '2.0.0',
-        },
-        body: JSON.stringify({
-          author: `urn:li:person:${conn.member_id}`,
-          lifecycleState: 'PUBLISHED',
-          specificContent: {
-            'com.linkedin.ugc.ShareContent': media
-              ? { shareCommentary: { text }, shareMediaCategory: 'IMAGE', media }
-              : { shareCommentary: { text }, shareMediaCategory: 'NONE' },
-          },
-          visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
-        }),
-      })
-    } catch {
+    const result = await createPost(accessToken, conn.member_id, text, media)
+    if (result.kind === 'no_answer') {
       await release()
       return fail(502, 'linkedin_failed', 'LinkedIn did not answer. Please check your LinkedIn profile before trying again.')
     }
-    if (res.status === 401) {
+    if (result.kind === 'expired') {
       await release()
       return fail(401, 'linkedin_expired')
     }
-    if (!res.ok) {
+    if (result.kind !== 'ok') {
       await release()
-      const detail = (await res.text()).slice(0, 300)
-      console.error('LinkedIn publish failed', res.status, detail)
-      return fail(502, 'linkedin_failed', `LinkedIn did not accept the post (${res.status}).`)
+      return fail(502, 'linkedin_failed', `LinkedIn did not accept the post (${result.kind === 'refused' ? result.status : 403}).`)
     }
-    const urn = res.headers.get('x-restli-id') ?? ((await res.json().catch(() => ({}))) as { id?: string }).id ?? ''
-    const externalUrl = urn ? `https://www.linkedin.com/feed/update/${urn}/` : null
+    const urn = result.urn
+    const externalUrl = postUrl(urn)
 
     const { error } = await db.from('posts')
       .update({ status: 'published', external_id: urn || null, external_url: externalUrl }).eq('id', postId)
@@ -447,42 +303,27 @@ async function handle(req: Request): Promise<Response> {
     const markFailed = (reason: string) =>
       db.from('post_comments').update({ status: 'failed', failure_reason: reason.slice(0, 500) }).eq('id', commentId).eq('status', 'publishing')
 
-    const urn = String(post.external_id)
-    let res: Response
-    try {
-      res = await linkedinFetch(`https://api.linkedin.com/v2/socialActions/${encodeURIComponent(urn)}/comments`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-          'X-Restli-Protocol-Version': '2.0.0',
-        },
-        body: JSON.stringify({ actor: `urn:li:person:${conn.member_id}`, object: urn, message: { text } }),
-      })
-    } catch {
+    const result = await createComment(accessToken, conn.member_id, String(post.external_id), text)
+    if (result.kind === 'no_answer') {
       const reason = 'LinkedIn did not answer, so Hiba could not confirm whether this comment was posted. Check your post on LinkedIn before trying again.'
       await markFailed(reason)
       return fail(502, 'comment_unconfirmed', reason)
     }
-    if (res.status === 401) {
+    if (result.kind === 'expired') {
       await db.from('post_comments').update({ status: 'approved' }).eq('id', commentId).eq('status', 'publishing')
       return fail(401, 'linkedin_expired')
     }
-    if (res.status === 403) {
-      const detail = (await res.text()).slice(0, 300)
-      console.error('LinkedIn comment refused', res.status, detail)
+    if (result.kind === 'forbidden') {
       const reason = 'LinkedIn did not allow Hiba to post comments with your LinkedIn app\'s current permissions (403). Copy this comment and post it yourself.'
       await markFailed(reason)
       return fail(403, 'comment_not_allowed', reason)
     }
-    if (!res.ok) {
-      const detail = (await res.text()).slice(0, 300)
-      console.error('LinkedIn comment failed', res.status, detail)
-      const reason = `LinkedIn did not accept this comment (${res.status}). Nothing was posted.`
+    if (result.kind === 'refused') {
+      const reason = `LinkedIn did not accept this comment (${result.status}). Nothing was posted.`
       await markFailed(reason)
       return fail(502, 'linkedin_failed', reason)
     }
-    const commentUrn = res.headers.get('x-restli-id') ?? ((await res.json().catch(() => ({}))) as { id?: string; $URN?: string }).$URN ?? ''
+    const commentUrn = result.urn
     const { error } = await db.from('post_comments')
       .update({ status: 'published', external_id: commentUrn ? commentUrn.slice(0, 300) : null }).eq('id', commentId)
     if (error) {
