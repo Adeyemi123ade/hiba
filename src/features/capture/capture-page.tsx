@@ -12,7 +12,8 @@ import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
-import { PostImage } from '@/features/capture/post-image'
+import { PostImages } from '@/features/capture/post-image'
+import { imageFields, imagesOf } from '@/features/content/api/image-service'
 import { AnglesPanel } from '@/features/capture/angles-panel'
 import { CommentsPanel } from '@/features/capture/comments-panel'
 import { useProfile } from '@/features/onboarding/use-profile'
@@ -580,16 +581,15 @@ export function CapturePage() {
           {fieldError && <p role="alert" className="mt-1 text-sm text-[var(--color-error)]">{fieldError}</p>}
 
           {active.platform === 'linkedin' && userId && (
-            <PostImage
+            <PostImages
               key={active.id}
               userId={userId}
               postId={active.id}
-              path={active.image_path ?? null}
-              alt={active.image_alt ?? null}
+              images={imagesOf(active)}
               editable={active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'}
               online={online}
-              onChange={(change) => {
-                setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, ...change } : p)))
+              onChange={(images) => {
+                setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, ...imageFields(images) } : p)))
                 queryClient.invalidateQueries({ queryKey: ['home-posts'] })
                 queryClient.invalidateQueries({ queryKey: ['library'] })
               }}
@@ -643,8 +643,7 @@ export function CapturePage() {
                   ideaId={ideaId}
                   isPublished={active.status === 'published'}
                   text={active.body}
-                  imagePath={active.image_path ?? null}
-                  imageAlt={active.image_alt ?? null}
+                  images={imagesOf(active)}
                   followUps={followUps}
                   publishedUrl={active.external_url ?? null}
                   onPublished={(url) => {

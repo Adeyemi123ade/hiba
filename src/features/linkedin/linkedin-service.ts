@@ -121,7 +121,7 @@ export function disconnectLinkedIn() {
 }
 
 export function publishToLinkedIn(postId: string) {
-  return call<{ published: true; url: string | null; warning?: string; image?: boolean }>({ action: 'publish', postId })
+  return call<{ published: true; url: string | null; warning?: string; image?: boolean; images?: number }>({ action: 'publish', postId })
 }
 
 /** Posts ONE approved follow-up comment under the person's published LinkedIn post. */
@@ -135,10 +135,12 @@ export async function postLinkedInComment(commentId: string): Promise<void> {
  * copy would publish the text without the image and could not post comments.
  * Returns true when up to date, false when out of date. Other problems (offline, session) throw.
  */
-export async function linkedInFunctionIsCurrent(): Promise<boolean> {
+export async function linkedInFunctionIsCurrent(imageCount = 0): Promise<boolean> {
   try {
     const info = await call<{ version?: number; features?: string[] }>({ action: 'info' })
-    return Boolean(info?.features?.includes('images') && info.features.includes('comments'))
+    const f = info?.features ?? []
+    // Several images need a copy that sends them all; an older one would send only the first.
+    return f.includes('images') && f.includes('comments') && (imageCount <= 1 || f.includes('multi-image'))
   } catch (e) {
     if (e instanceof LinkedInError && e.code === 'unknown') return false
     throw e

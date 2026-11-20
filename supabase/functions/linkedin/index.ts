@@ -13,7 +13,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const STATE_MAX_AGE_MS = 10 * 60 * 1000
-const FUNCTION_VERSION = 3
+const FUNCTION_VERSION = 4
 const PUBLISH_LIMIT_PER_HOUR = 10
 // Follow-up comments (owner decision, 19 Nov 2026): at most 10 per post, so 30 an hour is plenty.
 const COMMENT_LIMIT_PER_HOUR = 30
@@ -105,6 +105,7 @@ function fromBase64url(text: string) {
 
 const IMAGE_BUCKET = 'post-images'
 const IMAGE_MAX_BYTES = 5 * 1024 * 1024
+const IMAGE_MAX_COUNT = 9
 
 type ImageResult = { asset: string } | { error: ErrorCode; status: number; detail?: string }
 
@@ -160,6 +161,17 @@ async function uploadImageToLinkedIn(
   return { asset }
 }
 
+/** The post's images in order: the list, or (rows from before migration 0016) the single image. */
+function postImages(post: { images?: unknown; image_path?: string | null; image_alt?: string | null }): { path: string; alt: string | null }[] {
+  const list = Array.isArray(post.images)
+    ? post.images
+      .filter((x): x is { path: string; alt?: unknown } => Boolean(x) && typeof (x as { path?: unknown }).path === 'string')
+      .map((x) => ({ path: x.path, alt: typeof x.alt === 'string' && x.alt.trim() ? x.alt.trim() : null }))
+    : []
+  if (list.length) return list.slice(0, IMAGE_MAX_COUNT)
+  return post.image_path ? [{ path: post.image_path, alt: post.image_alt ? String(post.image_alt) : null }] : []
+}
+
 async function linkedinFetch(url: string, init: RequestInit) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), LINKEDIN_TIMEOUT_MS)
@@ -203,7 +215,7 @@ async function handle(req: Request): Promise<Response> {
   // ---------- info: lets the app check this function is up to date before posting ----------
   // An out-of-date copy would post without the image and could not post comments, so the app
   // refuses to post unless this answers with both features. Bump FUNCTION_VERSION on changes.
-  if (action === 'info') return reply(200, { version: FUNCTION_VERSION, features: ['images', 'comments'] })
+  if (action === 'info') return reply(200, { version: FUNCTION_VERSION, features: ['images', 'comments', 'multi-image'] })
 
   // ---------- start: build the LinkedIn approval link ----------
   if (action === 'start') {
@@ -299,7 +311,7 @@ async function handle(req: Request): Promise<Response> {
     if (!/^[0-9a-f-]{36}$/i.test(postId)) return fail(400, 'bad_request')
 
     const { data: post } = await db.from('posts')
-      .select('id, platform, status, body, external_id, external_url, image_path, image_alt').eq('id', postId).maybeSingle()
+      .select('id, platform, status, body, external_id, external_url, image_path, image_alt, images').eq('id', postId).maybeSingle()
     if (!post || post.platform !== 'linkedin') return fail(404, 'not_found')
     if (post.status === 'published') return fail(409, 'already_published', post.external_url ?? undefined)
     if (post.status !== 'approved') return fail(409, 'not_approved')
@@ -327,19 +339,25 @@ async function handle(req: Request): Promise<Response> {
     if (!claimed || claimed.length === 0) return fail(409, 'not_approved')
     const release = () => db.from('posts').update({ status: 'approved' }).eq('id', postId).eq('status', 'scheduled')
 
-    // Image first: if it cannot be sent, nothing is posted and the post goes back to approved.
+    // Images first, in order: if any one cannot be sent, nothing is posted and the post goes back
+    // to approved. Several images go out as one multi-image post.
+    const images = postImages(post)
     let media: Record<string, unknown>[] | null = null
-    if (post.image_path) {
-      const image = await uploadImageToLinkedIn(db, accessToken, conn.member_id, post.image_path)
-      if ('error' in image) {
-        await release()
-        return fail(image.status, image.error, image.detail)
+    if (images.length) {
+      media = []
+      for (const [i, img] of images.entries()) {
+        const image = await uploadImageToLinkedIn(db, accessToken, conn.member_id, img.path)
+        if ('error' in image) {
+          await release()
+          const which = images.length > 1 ? `Image ${i + 1}: ` : ''
+          return fail(image.status, image.error, image.detail ? `${which}${image.detail}` : undefined)
+        }
+        media.push({
+          status: 'READY',
+          media: image.asset,
+          ...(img.alt ? { description: { text: img.alt.slice(0, 300) } } : {}),
+        })
       }
-      media = [{
-        status: 'READY',
-        media: image.asset,
-        ...(post.image_alt ? { description: { text: String(post.image_alt).slice(0, 300) } } : {}),
-      }]
     }
 
     let res: Response
@@ -384,9 +402,9 @@ async function handle(req: Request): Promise<Response> {
     if (error) {
       // The post IS live on LinkedIn; say so rather than inviting a duplicate.
       console.error('Marking post published failed', error.message)
-      return reply(200, { published: true, url: externalUrl, image: Boolean(media), warning: 'saved_status_failed' })
+      return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0, warning: 'saved_status_failed' })
     }
-    return reply(200, { published: true, url: externalUrl, image: Boolean(media) })
+    return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0 })
   }
 
   // ---------- comment: post ONE approved follow-up comment under the person's published post ----------
