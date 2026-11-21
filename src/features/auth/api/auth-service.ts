@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { FriendlyError } from '@/features/auth/api/auth-errors'
 import { TERMS_VERSION } from '@/lib/legal'
 
 /**
@@ -27,9 +28,9 @@ export async function registerWithEmail(
   // (Supabase "Confirm email" is off). Never let an unverified address through.
   if (data.session) {
     await supabase.auth.signOut()
-    throw new Error(
-      'Email verification is switched off on the server, so sign-up was stopped. Turn on "Confirm email" in Supabase Auth settings.',
-    )
+    // For the owner: turn on "Confirm email" in Supabase Auth settings.
+    console.error('Sign-up stopped: email confirmation is switched off in Supabase Auth settings')
+    throw new FriendlyError('Sign-up is not available right now. Please try again later.')
   }
   return data
 }

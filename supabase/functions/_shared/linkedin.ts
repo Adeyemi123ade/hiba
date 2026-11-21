@@ -111,7 +111,7 @@ async function uploadImage(db: StorageReader, accessToken: string, memberId: str
   if (register.status === 401) return { error: 'linkedin_expired', status: 401 }
   if (!register.ok) {
     console.error('LinkedIn registerUpload failed', register.status, (await register.text()).slice(0, 300))
-    return { error: 'image_failed', status: 502, detail: `LinkedIn would not accept the image (${register.status}).` }
+    return { error: 'image_failed', status: 502, detail: 'LinkedIn would not accept the image. Try a different image.' }
   }
   const reg = await register.json() as {
     value?: { asset?: string; uploadMechanism?: Record<string, { uploadUrl?: string }> }

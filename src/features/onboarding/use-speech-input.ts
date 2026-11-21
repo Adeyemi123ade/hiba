@@ -40,6 +40,8 @@ export function useSpeechInput(onText: (text: string) => void) {
   const chunks = useRef<Blob[]>([])
   const lastAudio = useRef<Blob | null>(null)
   const startedAt = useRef(0)
+  // Length of the last recording in seconds, sent with it (also on "Try again").
+  const lastLength = useRef(0)
   const discard = useRef(false)
   const tick = useRef<ReturnType<typeof setInterval> | null>(null)
   const cbRef = useRef(onText)
@@ -66,13 +68,13 @@ export function useSpeechInput(onText: (text: string) => void) {
     setError(null)
     setCanRetry(false)
     try {
-      const text = await transcribeAudio(audio)
+      const text = await transcribeAudio(audio, lastLength.current)
       lastAudio.current = null
       cbRef.current(text)
     } catch (e) {
       const code = e instanceof TranscribeError ? e.code : 'failed'
       setError(TRANSCRIBE_ERROR_TEXT[code])
-      setCanRetry(code === 'offline' || code === 'failed')
+      setCanRetry(code === 'offline' || code === 'failed' || code === 'busy')
     } finally {
       setTranscribing(false)
     }
@@ -126,6 +128,7 @@ export function useSpeechInput(onText: (text: string) => void) {
         return
       }
       lastAudio.current = audio
+      lastLength.current = (Date.now() - startedAt.current) / 1000
       void send(audio)
     }
     recorder.current = rec

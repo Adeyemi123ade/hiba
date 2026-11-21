@@ -11,6 +11,9 @@
 // Deploy:  npx supabase functions deploy generate-drafts --project-ref dyqmzgebcbalboecncjv
 // Secret:  npx supabase secrets set OPENAI_API_KEY=... --project-ref dyqmzgebcbalboecncjv
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import {
+  addChatUsage, chatCost, checkAllowance, isBusy, newMeter, recordUsage, retryDelayMs, type AiMeter, type Operation,
+} from '../_shared/usage.ts'
 
 const RATE_LIMIT_PER_HOUR = 20
 const OPENAI_TIMEOUT_MS = 45_000
@@ -40,7 +43,7 @@ function withOrigin(res: Response, origin: string | null): Response {
 
 type ErrorCode =
   | 'bad_request' | 'unauthorized' | 'not_found' | 'rate_limited' | 'not_configured' | 'ai_failed' | 'server_error'
-  | 'nothing_to_change' | 'comments_posted'
+  | 'nothing_to_change' | 'comments_posted' | 'ai_busy'
 
 function reply(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -48,8 +51,14 @@ function reply(status: number, body: unknown) {
     headers: { ...cors, 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' },
   })
 }
-/** `detail` is a short plain reason the app shows, so a failure is never a mystery. No secrets in it. */
-const fail = (status: number, code: ErrorCode, detail?: string) => reply(status, { error: code, ...(detail ? { detail: detail.slice(0, 300) } : {}) })
+/**
+ * The app only ever receives a code and turns it into a plain sentence. The technical reason goes to
+ * the function log (and the usage record), never to the person's screen.
+ */
+const fail = (status: number, code: ErrorCode, internal?: string) => {
+  if (internal) console.error('generate-drafts', code, internal)
+  return reply(status, { error: code })
+}
 
 interface Drafts {
   linkedin: string
@@ -123,7 +132,7 @@ export function styleProblems(d: Drafts): string[] {
   if (sb) problems.push(`Substack had ${sb} paragraph(s) with more than three sentences`)
   // The closing question may be followed by a short invitation and a thank-you line.
   const ending = paragraphs(d.linkedin).filter((p) => !isHashtagLine(p)).slice(-3).join(' ')
-  if (!ending.includes('?')) problems.push('LinkedIn did not end with a specific question that invites readers to share')
+  if (d.linkedin && !ending.includes('?')) problems.push('LinkedIn did not end with a specific question that invites readers to share')
   return problems
 }
 
@@ -141,7 +150,7 @@ export function parseClarify(raw: string): string | null {
   }
 }
 
-function parseDrafts(raw: string): Drafts | null {
+function parseDrafts(raw: string, wanted: readonly Platform[]): Drafts | null {
   try {
     const d = JSON.parse(raw)
     // Generous safety caps only: text is never cut near the real limits, so nothing is shortened
@@ -150,8 +159,15 @@ function parseDrafts(raw: string): Drafts | null {
     const x = Array.isArray(d?.x) ? d.x.map((p: unknown) => str(p, 1000)).filter(Boolean).slice(0, 8) : []
     const title = str(d?.substack?.title, 200)
     const body = str(d?.substack?.body, 20000)
-    if (!linkedin || x.length === 0 || !title || !body) return null
-    return { linkedin, x, substack: { title, body } }
+    // Only the platforms asked for must be there; the others stay empty and are never saved.
+    if (wanted.includes('linkedin') && !linkedin) return null
+    if (wanted.includes('x') && x.length === 0) return null
+    if (wanted.includes('substack') && (!title || !body)) return null
+    return {
+      linkedin: wanted.includes('linkedin') ? linkedin : '',
+      x: wanted.includes('x') ? x : [],
+      substack: wanted.includes('substack') ? { title, body } : { title: '', body: '' },
+    }
   } catch {
     return null
   }
@@ -450,7 +466,15 @@ export function buildAnglePrompt(profile: Record<string, unknown> | null, idea: 
 
 export function buildPrompt(
   profile: Record<string, unknown> | null, idea: string, rewrite?: Rewrite, angle?: ChosenAngle, voice?: Voice,
+  platforms: readonly Platform[] = ['linkedin', 'x', 'substack'],
 ) {
+  // A rewrite is always for one platform only.
+  const wanted: readonly Platform[] = rewrite ? [rewrite.platform] : platforms
+  const shape = [
+    wanted.includes('linkedin') ? '"linkedin": string' : '',
+    wanted.includes('x') ? '"x": array of strings (one per post in the thread)' : '',
+    wanted.includes('substack') ? '"substack": {"title": string, "body": string}' : '',
+  ].filter(Boolean).join(', ')
   // A clarifying question is only useful for a brand-new idea, not when rewriting existing drafts.
   const clarifyAllowed = !rewrite && !angle
   const a = (profile?.onboarding ?? {}) as Record<string, unknown>
@@ -511,10 +535,10 @@ export function buildPrompt(
     '- Never end with only a generic question such as "What do you think?" or "Thoughts?".',
     '- This is a guide, not a template: let the idea decide whether the post is personal, educational, argumentative or reflective.',
     '',
-    'PLATFORMS (write three genuinely different versions, never a cut-down copy)',
-    `- LinkedIn: at most ${WORD_LIMITS.linkedin} words (aim for 120 to 180). At most 3 relevant hashtags, on the last line, or none.`,
-    `- X: a thread of 1 to 4 posts, at most ${WORD_LIMITS.x} words in total, each post at most 270 characters, no hashtags. Each post must stand on its own. Inside one X post use single line breaks only, never a blank line.`,
-    `- Substack: a title under 80 characters and a body of 400 to ${WORD_LIMITS.substack} words: a clear opening, 2 to 4 short sections, a closing thought. Paragraphs of at most 3 sentences.`,
+    wanted.length > 1 ? 'PLATFORMS (write genuinely different versions, never a cut-down copy)' : 'PLATFORM',
+    wanted.includes('linkedin') ? `- LinkedIn: at most ${WORD_LIMITS.linkedin} words (aim for 120 to 180). At most 3 relevant hashtags, on the last line, or none.` : '',
+    wanted.includes('x') ? `- X: a thread of 1 to 4 posts, at most ${WORD_LIMITS.x} words in total, each post at most 270 characters, no hashtags. Each post must stand on its own. Inside one X post use single line breaks only, never a blank line.` : '',
+    wanted.includes('substack') ? `- Substack: a title under 80 characters and a body of 400 to ${WORD_LIMITS.substack} words: a clear opening, 2 to 4 short sections, a closing thought. Paragraphs of at most 3 sentences.` : '',
     '',
     ...voiceSection(voice),
     '',
@@ -526,7 +550,8 @@ export function buildPrompt(
       ? '- If you truly cannot tell what the main point of their idea is (for example it is only a few unrelated words), do not guess: reply with {"clarify": "one short, friendly question about what they want to say"} instead.'
       : '',
     '- Otherwise reply with JSON only, in this exact shape:',
-    '{"linkedin": string, "x": array of strings (one per post in the thread), "substack": {"title": string, "body": string}}',
+    `{${shape}}`,
+    wanted.length < 3 ? '- Write only the field(s) in that shape. Do not write anything for other platforms.' : '',
   ].filter((line) => line !== '').join('\n')
 
   const user = [
@@ -537,7 +562,7 @@ export function buildPrompt(
     `\nTheir idea:\n<idea>\n${idea}\n</idea>`,
     angle
       ? [
-          '\nWrite all three posts from this angle. Keep their facts; the angle only changes how the idea is told:',
+          '\nWrite from this angle. Keep their facts; the angle only changes how the idea is told:',
           `<angle>\nType: ${ANGLE_KINDS[angle.kind]}\nTitle: ${angle.title}\nWhat it says: ${angle.summary}\n</angle>`,
         ].join('\n')
       : '',
@@ -548,7 +573,6 @@ export function buildPrompt(
           rewrite.guidance
             ? `What they want changed:\n<change>\n${rewrite.guidance}\n</change>\nApply that change while keeping their meaning and facts.`
             : 'Write a clearly different version that keeps their meaning and facts.',
-          'Still return all three fields in the JSON shape.',
         ].join('\n')
       : '',
   ].join('\n')
@@ -705,12 +729,12 @@ export function buildCommentsPrompt(
   return { system, user }
 }
 
-async function callOpenAI(key: string, system: string, user: string): Promise<Drafts | null> {
-  return parseDrafts((await askOpenAI(key, system, user)) ?? '')
+async function callOpenAI(key: AiMeter, system: string, user: string, wanted: readonly Platform[]): Promise<Drafts | null> {
+  return parseDrafts((await askOpenAI(key, system, user)) ?? '', wanted)
 }
 
 /** Why the last AI call in a request failed, in plain words (no secrets). */
-async function askOpenAI(key: string, system: string, user: string): Promise<string | null> {
+async function askOpenAI(key: AiMeter, system: string, user: string): Promise<string | null> {
   return (await askOpenAIDetailed(key, system, user)).text
 }
 
@@ -721,7 +745,16 @@ async function askOpenAI(key: string, system: string, user: string): Promise<str
  */
 interface AskOptions { schema?: { name: string; schema: Record<string, unknown> }; maxTokens?: number; timeoutMs?: number; plainText?: boolean }
 
-async function askOpenAIDetailed(key: string, system: string, user: string, opts: AskOptions = {}): Promise<{ text: string | null; reason: string }> {
+async function askOpenAIDetailed(key: AiMeter, system: string, user: string, opts: AskOptions = {}): Promise<{ text: string | null; reason: string }> {
+  const first = await askOnce(key, system, user, opts)
+  if (first.waitMs === undefined) return first
+  // OpenAI was busy: wait as long as it asks (a few seconds at most), then try once more.
+  await new Promise((r) => setTimeout(r, first.waitMs))
+  const second = await askOnce(key, system, user, opts)
+  return { text: second.text, reason: second.reason }
+}
+
+async function askOnce(key: AiMeter, system: string, user: string, opts: AskOptions): Promise<{ text: string | null; reason: string; waitMs?: number }> {
   const timeoutMs = opts.timeoutMs ?? OPENAI_TIMEOUT_MS
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
@@ -729,7 +762,7 @@ async function askOpenAIDetailed(key: string, system: string, user: string, opts
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       signal: ctrl.signal,
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${key.key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: MODEL,
         temperature: 0.6,
@@ -744,14 +777,20 @@ async function askOpenAIDetailed(key: string, system: string, user: string, opts
     })
     if (!res.ok) {
       const body = (await res.text()).slice(0, 500)
-      console.error('OpenAI error', res.status, body)
-      const why = res.status === 429 ? 'OpenAI refused: rate limit or no credit left on the OpenAI account (429)'
-        : res.status === 401 ? 'OpenAI refused the API key (401). Check OPENAI_API_KEY in Supabase secrets'
+      const busy = isBusy(res.status, body)
+      const why = res.status === 429 && !busy ? 'OPENAI_NO_CREDIT: no credit left on the OpenAI account (429)'
+        : res.status === 429 ? 'OpenAI rate limit (429)'
+        : res.status === 401 ? 'OPENAI_BAD_KEY: OpenAI refused the API key (401). Check OPENAI_API_KEY in Supabase secrets'
         : res.status === 404 ? 'OpenAI does not know the model set in OPENAI_MODEL (404)'
         : `OpenAI answered with an error (${res.status})`
-      return { text: null, reason: why }
+      console.error('OpenAI error', why, body)
+      key.error = why
+      key.failure = busy ? 'busy' : res.status === 429 || res.status === 401 || res.status === 404 ? 'unavailable' : ''
+      return { text: null, reason: why, ...(busy ? { waitMs: retryDelayMs(res) } : {}) }
     }
     const data = await res.json()
+    addChatUsage(key, data?.usage)
+    key.failure = ''
     const choice = data?.choices?.[0]
     const content = choice?.message?.content
     if (choice?.message?.refusal) return { text: null, reason: 'OpenAI declined to write this' }
@@ -760,7 +799,10 @@ async function askOpenAIDetailed(key: string, system: string, user: string, opts
   } catch (e) {
     const aborted = e instanceof Error && e.name === 'AbortError'
     console.error('OpenAI request failed', e instanceof Error ? e.message : e)
-    return { text: null, reason: aborted ? `OpenAI took longer than ${timeoutMs / 1000} seconds` : 'Could not reach OpenAI' }
+    key.calls += 1
+    key.error = aborted ? `OpenAI took longer than ${timeoutMs / 1000} seconds` : 'Could not reach OpenAI'
+    key.failure = 'busy'
+    return { text: null, reason: key.error }
   } finally {
     clearTimeout(timer)
   }
@@ -773,7 +815,7 @@ async function askOpenAIDetailed(key: string, system: string, user: string, opts
  * yet, or anything fails, drafting carries on without the description; it never blocks drafting.
  */
 // deno-lint-ignore no-explicit-any
-async function loadVoice(db: any, key: string, userId: string, profile: Record<string, unknown> | null, ideaId: string): Promise<Voice> {
+async function loadVoice(db: any, key: AiMeter, userId: string, profile: Record<string, unknown> | null, ideaId: string): Promise<Voice> {
   const a = (profile?.onboarding ?? {}) as Record<string, unknown>
   const sample = str(a.writingSample, 3000)
   const { data: recent } = await db.from('posts').select('body')
@@ -821,12 +863,34 @@ async function loadVoice(db: any, key: string, userId: string, profile: Record<s
  * What this deployed copy can do. The app asks first (mode "info"), so an out-of-date copy on the
  * server is reported plainly instead of failing silently. Raise it when a feature the app needs is added.
  */
-const FUNCTION_VERSION = 2
-const FEATURES = ['comments', 'comment-status', 'voice']
+const FUNCTION_VERSION = 3
+const FEATURES = ['comments', 'comment-status', 'voice', 'platforms', 'limits']
 
-Deno.serve(async (req) => withOrigin(await handle(req), req.headers.get('origin')))
+/** What one request did, so its AI usage can be recorded after the answer is ready. */
+interface Run {
+  // deno-lint-ignore no-explicit-any
+  db?: any
+  userId?: string
+  op?: Operation
+  ai?: AiMeter
+  ideaId?: string
+  postId?: string
+}
 
-async function handle(req: Request): Promise<Response> {
+Deno.serve(async (req) => {
+  const run: Run = {}
+  const res = await handle(req, run)
+  if (run.db && run.userId && run.op && run.ai && run.ai.calls > 0) {
+    await recordUsage(run.db, {
+      userId: run.userId, operation: run.op, ok: res.status === 200, model: run.ai.model, calls: run.ai.calls,
+      input: run.ai.input, cached: run.ai.cached, output: run.ai.output, cost: chatCost(run.ai),
+      ideaId: run.ideaId, postId: run.postId, error: res.status === 200 ? undefined : run.ai.error || `status ${res.status}`,
+    })
+  }
+  return withOrigin(res, req.headers.get('origin'))
+})
+
+async function handle(req: Request, run: Run): Promise<Response> {
   const startedAt = Date.now()
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (req.method !== 'POST') return fail(405, 'bad_request')
@@ -843,6 +907,7 @@ async function handle(req: Request): Promise<Response> {
   let rewriteCommentId = ''
   let postId = ''
   let commentCount = COMMENTS_MIN
+  let requested: Platform[] | null = null
   try {
     const input = await req.json()
     if (input?.mode === 'info') return reply(200, { version: FUNCTION_VERSION, features: FEATURES })
@@ -862,6 +927,13 @@ async function handle(req: Request): Promise<Response> {
       if (!PLATFORMS.includes(input.platform)) return fail(400, 'bad_request')
       only = input.platform
     }
+    // Which platforms to write for (new drafts). Missing: the person's default from Settings.
+    if (input?.platforms !== undefined) {
+      if (!Array.isArray(input.platforms)) return fail(400, 'bad_request')
+      const list = PLATFORMS.filter((p) => input.platforms.includes(p))
+      if (!list.length || list.length !== new Set(input.platforms).size) return fail(400, 'bad_request')
+      requested = list
+    }
     // Strip control characters; the text is only ever placed inside <change> tags.
     guidance = [...str(input?.guidance, GUIDANCE_MAX)]
       .map((ch) => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? ' ' : ch)).join('')
@@ -873,7 +945,8 @@ async function handle(req: Request): Promise<Response> {
   if (angleId && (!/^[0-9a-f-]{36}$/i.test(angleId) || only || wantAngles)) return fail(400, 'bad_request')
   if (wantAngles && only) return fail(400, 'bad_request')
   const commentMode = wantComments || Boolean(rewriteCommentId)
-  if (commentMode && (only || guidance || angleId)) return fail(400, 'bad_request')
+  if (commentMode && (only || guidance || angleId || requested)) return fail(400, 'bad_request')
+  if (requested && (only || wantAngles)) return fail(400, 'bad_request')
   if (wantComments && !/^[0-9a-f-]{36}$/i.test(postId)) return fail(400, 'bad_request')
   if (rewriteCommentId && !/^[0-9a-f-]{36}$/i.test(rewriteCommentId)) return fail(400, 'bad_request')
 
@@ -897,8 +970,21 @@ async function handle(req: Request): Promise<Response> {
   if (countError) return fail(500, 'server_error')
   if ((count ?? 0) >= RATE_LIMIT_PER_HOUR) return fail(429, 'rate_limited')
 
-  const key = Deno.env.get('OPENAI_API_KEY')
-  if (!key) return fail(503, 'not_configured')
+  const openaiKey = Deno.env.get('OPENAI_API_KEY')
+  if (!openaiKey) return fail(503, 'not_configured', 'OPENAI_API_KEY is not set')
+  const key = newMeter(openaiKey, MODEL)
+  const aiFail = () => fail(key.failure === 'unavailable' ? 503 : 502, key.failure === 'busy' ? 'ai_busy' : key.failure === 'unavailable' ? 'not_configured' : 'ai_failed')
+
+  // Which daily limit this request uses. Writing for a platform an idea does not have yet is a rewrite.
+  const { data: had } = await db.from('posts').select('platform').eq('idea_id', ideaId)
+  const hadPlatforms = ((had ?? []) as { platform: Platform }[]).map((p) => p.platform)
+  const op: Operation = rewriteCommentId ? 'comment_rewrite' : wantComments ? 'comments' : wantAngles ? 'angles'
+    : only ? 'rewrite'
+    : !angleId && requested && hadPlatforms.length > 0 && requested.every((p) => !hadPlatforms.includes(p)) ? 'rewrite'
+    : 'draft'
+  const allowance = await checkAllowance(db, op)
+  if (!allowance.allowed) return reply(429, { error: 'daily_limit', operation: op, nextAt: allowance.nextAt })
+  Object.assign(run, { db, userId, op, ai: key, ideaId })
 
   // A chosen angle must exist, be the caller's (RLS) and belong to this idea.
   let angle: (ChosenAngle & { id: string }) | undefined
@@ -949,13 +1035,19 @@ async function handle(req: Request): Promise<Response> {
 
   await db.from('draft_requests').insert({ user_id: userId, idea_id: ideaId })
 
-  const { data: profile } = await db
-    .from('profiles').select('preferred_name, onboarding').eq('id', userId).maybeSingle()
+  // deno-lint-ignore no-explicit-any
+  let { data: profile, error: profileError }: { data: any; error: unknown } = await db
+    .from('profiles').select('preferred_name, onboarding, draft_platforms').eq('id', userId).maybeSingle()
+  // Before migration 0019 there is no platform setting yet.
+  if (profileError) ({ data: profile } = await db.from('profiles').select('preferred_name, onboarding').eq('id', userId).maybeSingle())
+  const savedDefault = Array.isArray(profile?.draft_platforms) ? PLATFORMS.filter((p) => profile.draft_platforms.includes(p)) : []
+  const defaultPlatforms: Platform[] = savedDefault.length ? savedDefault : ['linkedin']
 
   // Their voice, for drafts, rewrites and comments (angles are summaries, so they skip it).
   const voice = wantAngles ? undefined : await loadVoice(db, key, userId, profile, ideaId)
 
   if (commentMode && commentPost) {
+    run.postId = commentPost.id
     // Supabase stops a function after 150 seconds: only start another AI call if it can finish in time.
     const timeLeft = () => REQUEST_BUDGET_MS - (Date.now() - startedAt)
     const listComments = async () => {
@@ -971,7 +1063,7 @@ async function handle(req: Request): Promise<Response> {
       let answer = await askOpenAIDetailed(key, prompt.system, prompt.user, oneOpts)
       if (!answer.text && timeLeft() > COMMENT_CALL_MS) answer = await askOpenAIDetailed(key, prompt.system, prompt.user, oneOpts)
       let next = parseOneComment(answer.text ?? '')
-      if (!next) return fail(502, 'ai_failed', answer.reason || 'The AI\'s reply could not be read as a comment')
+      if (!next) { key.error ||= 'The reply could not be read as a comment'; return aiFail() }
       const problems = commentProblems([next], commentPost.body)
       if (problems.length && timeLeft() > COMMENT_CALL_MS) {
         const retry = parseOneComment((await askOpenAIDetailed(key, prompt.system, `${prompt.user}\n\nYour previous answer broke these rules: ${problems.join('; ')}. Write it again and follow every rule.`, oneOpts)).text ?? '')
@@ -992,14 +1084,14 @@ async function handle(req: Request): Promise<Response> {
       answer = await askOpenAIDetailed(key, prompt.system, prompt.user, listOpts)
       list = parseComments(answer.text ?? '')
     }
-    if (!list) return fail(502, 'ai_failed', answer.reason || 'The AI\'s reply could not be read as comments')
+    if (!list) { key.error ||= 'The reply could not be read as comments'; return aiFail() }
     const problems = [...commentProblems(list, commentPost.body), ...(list.length < commentCount ? [`you wrote ${list.length} comments instead of ${commentCount}`] : [])]
     if (problems.length && timeLeft() > COMMENT_CALL_MS) {
       const retry = parseComments((await askOpenAIDetailed(key, prompt.system, `${prompt.user}\n\nYour previous answer broke these rules: ${problems.join('; ')}. Write it again and follow every rule.`, listOpts)).text ?? '')
       const score = (l: string[]) => commentProblems(l, commentPost.body).length + Math.abs(commentCount - l.length)
       if (retry && score(retry) < score(list)) list = retry
     }
-    if (list.length < 3) return fail(502, 'ai_failed', `The AI wrote only ${list.length} usable comment(s); at least 3 are needed`)
+    if (list.length < 3) { key.error = `Only ${list.length} usable comment(s); at least 3 are needed`; return fail(502, 'ai_failed') }
     // Replaces the post's earlier comments (the screen asks first when there are any).
     const { error: delError } = await db.from('post_comments').delete().eq('post_id', commentPost.id)
     if (delError) return fail(500, 'server_error', `Removing the earlier comments failed: ${delError.message}`)
@@ -1011,7 +1103,7 @@ async function handle(req: Request): Promise<Response> {
       return fail(500, 'server_error', `Saving the comments failed: ${insError.message}`)
     }
     const comments = await listComments()
-    return comments ? reply(200, { comments }) : fail(500, 'server_error', 'The comments were saved but could not be read back. Reload the page.')
+    return comments ? reply(200, { comments }) : fail(500, 'server_error', 'Comments saved but could not be read back')
   }
 
   if (wantAngles) {
@@ -1021,7 +1113,7 @@ async function handle(req: Request): Promise<Response> {
     const kinds = nextKinds((had ?? []).map((a) => a.kind))
     const prompt = buildAnglePrompt(profile, idea.body, kinds, (had ?? []).map((a) => str(a.title, 120)))
     const found = parseAngles((await askOpenAI(key, prompt.system, prompt.user)) ?? '', kinds)
-    if (!found) return fail(502, 'ai_failed')
+    if (!found) return aiFail()
     const { error: insertError } = await db.from('angles')
       .insert(found.map((a) => ({ ...a, user_id: userId, idea_id: ideaId })))
     if (insertError) {
@@ -1047,14 +1139,17 @@ async function handle(req: Request): Promise<Response> {
     rewrite = { platform: only, guidance, current: current.title ? `${current.title}\n\n${current.body}` : current.body }
   }
 
-  const { system, user } = buildPrompt(profile, idea.body, rewrite, angle, voice)
+  // A rewrite writes one platform. An angle rewrites the posts the idea has (or the default set).
+  const wanted: Platform[] = only ? [only]
+    : requested ?? (angle && hadPlatforms.length ? PLATFORMS.filter((p) => hadPlatforms.includes(p)) : defaultPlatforms)
+  const { system, user } = buildPrompt(profile, idea.body, rewrite, angle, voice, wanted)
   const firstRaw = await askOpenAI(key, system, user)
-  if (firstRaw === null) return fail(502, 'ai_failed')
+  if (firstRaw === null) return aiFail()
   // An unclear new idea: ask the person rather than guess (owner rule, section 2).
   const question = !rewrite && !angle ? parseClarify(firstRaw) : null
   if (question) return reply(422, { error: 'needs_clarification', question })
-  let drafts = parseDrafts(firstRaw)
-  if (!drafts) return fail(502, 'ai_failed')
+  let drafts = parseDrafts(firstRaw, wanted)
+  if (!drafts) { key.error ||= 'The reply could not be read as drafts'; return fail(502, 'ai_failed') }
   // One stricter second attempt if a draft breaks a word limit. If it is still long, the
   // person sees the count in red and must shorten it before approving.
   // One stricter second attempt if a draft breaks a word limit or a writing rule. The better of
@@ -1063,7 +1158,7 @@ async function handle(req: Request): Promise<Response> {
   const score = (d: Drafts) => qualityScore(d) + 25 * voiceProblems(d, voice?.stats ?? null).length
   const problems = [...overLimits(drafts), ...styleProblems(drafts), ...voiceProblems(drafts, voice?.stats ?? null)]
   if (problems.length) {
-    const retry = await callOpenAI(key, system, `${user}\n\nYour previous answer broke these rules: ${problems.join('; ')}. Write it again and follow every rule.`)
+    const retry = await callOpenAI(key, system, `${user}\n\nYour previous answer broke these rules: ${problems.join('; ')}. Write it again and follow every rule.`, wanted)
     if (retry && score(retry) < score(drafts)) drafts = retry
   }
 
@@ -1077,7 +1172,7 @@ async function handle(req: Request): Promise<Response> {
   // Every new text is also kept as a version (HPD-50), and the person's own edits are saved
   // as a version before being replaced, so nothing is silently lost.
   for (const row of rows) {
-    if (only && row.platform !== only) continue
+    if (!wanted.includes(row.platform as Platform)) continue
     const current = existing?.find((p) => p.platform === row.platform)
     if (current && current.status !== 'draft' && current.status !== 'needs_review') continue
 

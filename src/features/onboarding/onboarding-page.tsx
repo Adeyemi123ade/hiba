@@ -226,7 +226,7 @@ export function OnboardingPage() {
         return
       }
       if (!navigator.onLine || /failed to fetch|network/i.test(e.message ?? '')) {
-        setError('We could not reach the server. Check your connection, then press Continue again. Your answers are kept.')
+        setError('We could not connect. Check your internet connection, then press Continue again. Your answers are kept.')
         return
       }
       setError(

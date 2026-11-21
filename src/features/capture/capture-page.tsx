@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useBlocker, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Archive, ArchiveRestore, Check, Copy, Loader2, Mic, ShieldCheck, Square, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, Copy, Loader2, Mic, Plus, ShieldCheck, Square, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useSession } from '@/features/auth/use-session'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
@@ -17,6 +17,8 @@ import { PostImages } from '@/features/capture/post-image'
 import { imageFields, imagesOf } from '@/features/content/api/image-service'
 import { AnglesPanel } from '@/features/capture/angles-panel'
 import { CommentsPanel } from '@/features/capture/comments-panel'
+import { LeftToday } from '@/features/content/left-today'
+import { ALLOWANCES_KEY, useDraftPlatforms } from '@/features/content/use-allowances'
 import { useProfile } from '@/features/onboarding/use-profile'
 import { DeletePostDialog } from '@/features/library/delete-post-dialog'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
@@ -71,6 +73,11 @@ export function CapturePage() {
   const [slow, setSlow] = useState(false)
   const [posts, setPosts] = useState<Post[]>([])
   const [tab, setTab] = useState<Platform>('linkedin')
+  // Which platforms to write for: the Settings default until the person changes the ticks.
+  const defaultPlatforms = useDraftPlatforms(Boolean(userId))
+  const [chosenPlatforms, setChosenPlatforms] = useState<Platform[] | null>(null)
+  const platforms = chosenPlatforms ?? defaultPlatforms.data ?? ['linkedin']
+  const [adding, setAdding] = useState<Platform | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [approving, setApproving] = useState(false)
@@ -171,6 +178,11 @@ export function CapturePage() {
     return () => window.removeEventListener('beforeunload', warn)
   }, [unsaved])
 
+  // After each recording is turned into text, refresh what is left today.
+  useEffect(() => {
+    if (!speech.transcribing) void queryClient.invalidateQueries({ queryKey: ALLOWANCES_KEY })
+  }, [speech.transcribing, queryClient])
+
   // Moving to another page in Hiba after a save failed: ask before leaving.
   const blocker = useBlocker(saveState === 'failed')
 
@@ -208,7 +220,7 @@ export function CapturePage() {
         setSavedText(clean)
         saveCaptureDraft(userId, { text: clean, ideaId: id })
       }
-      const result = await generateDrafts(id)
+      const result = await generateDrafts(id, { platforms })
       const sorted = [...result].sort((a, b) => order(a.platform) - order(b.platform))
       setPosts(sorted)
       setTab(sorted.find((p) => AWAITING_REVIEW.includes(p.status))?.platform ?? sorted[0]?.platform ?? 'linkedin')
@@ -228,7 +240,34 @@ export function CapturePage() {
       setPhase('write')
     } finally {
       clearTimeout(slowTimer)
+      void queryClient.invalidateQueries({ queryKey: ALLOWANCES_KEY })
     }
+  }
+
+  // Write this idea for a platform it does not have yet (X or Substack, when the person asks).
+  async function addPlatform(p: Platform) {
+    if (!ideaId || adding) return
+    await saveNow()
+    setAdding(p)
+    setError(null)
+    try {
+      const result = await generateDrafts(ideaId, { platforms: [p] })
+      setPosts([...result].sort((a, b) => order(a.platform) - order(b.platform)))
+      setTab(p)
+      setCopied(null)
+      queryClient.invalidateQueries({ queryKey: ['home-posts'] })
+      queryClient.invalidateQueries({ queryKey: ['library'] })
+    } catch (e) {
+      setError(codeOf(e))
+    } finally {
+      setAdding(null)
+      void queryClient.invalidateQueries({ queryKey: ALLOWANCES_KEY })
+    }
+  }
+
+  function togglePlatform(p: Platform) {
+    const next = platforms.includes(p) ? platforms.filter((x) => x !== p) : [...platforms, p]
+    if (next.length) setChosenPlatforms(next)
   }
 
   function startOver() {
@@ -332,6 +371,7 @@ export function CapturePage() {
     if (!active || !ideaId) return
     await saveNow()
     const result = await generateDrafts(ideaId, { platform: active.platform, guidance })
+      .finally(() => queryClient.invalidateQueries({ queryKey: ALLOWANCES_KEY }))
     setPosts([...result].sort((a, b) => order(a.platform) - order(b.platform)))
     setSaveState('idle')
     setCopied(null)
@@ -345,6 +385,7 @@ export function CapturePage() {
     if (!ideaId) return
     await saveNow()
     const result = await generateDrafts(ideaId, { angleId: angle.id })
+      .finally(() => queryClient.invalidateQueries({ queryKey: ALLOWANCES_KEY }))
     const sorted = [...result].sort((a, b) => order(a.platform) - order(b.platform))
     setPosts(sorted)
     if (!sorted.find((p) => p.platform === tab && AWAITING_REVIEW.includes(p.status))) {
@@ -439,13 +480,13 @@ export function CapturePage() {
 
   const errorBanner = error && (
     <Banner
-      tone={error === 'offline' || error === 'rate_limited' ? 'warning' : 'error'}
+      tone={error === 'offline' || error === 'rate_limited' || error === 'daily_limit' || error === 'ai_busy' ? 'warning' : 'error'}
       action={
         error === 'session_expired' ? (
           <SignInAgainButton />
         ) : error === 'not_found' ? (
           <button type="button" className="font-semibold underline" onClick={startOver}>Start a new idea</button>
-        ) : phase === 'write' && (error === 'ai_failed' || error === 'unknown' || error === 'not_configured') ? (
+        ) : phase === 'write' && (error === 'ai_failed' || error === 'ai_busy' || error === 'unknown' || error === 'not_configured') ? (
           <button type="button" className="font-semibold underline" onClick={makePosts} disabled={!online}>
             Try again
           </button>
@@ -539,6 +580,13 @@ export function CapturePage() {
                 {PLATFORMS.find((x) => x.id === p.platform)?.name}
               </button>
             ))}
+            {PLATFORMS.filter((x) => !posts.some((p) => p.platform === x.id)).map((x) => (
+              <button key={x.id} type="button" onClick={() => addPlatform(x.id)} disabled={!online || adding !== null}
+                className="flex items-center gap-1 rounded-full border border-dashed border-[var(--color-border)] px-4 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50">
+                {adding === x.id ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+                {adding === x.id ? `Writing the ${x.name}...` : `Also write ${x.name}`}
+              </button>
+            ))}
           </div>
 
           {active.platform === 'substack' && (
@@ -586,7 +634,6 @@ export function CapturePage() {
               key={active.id}
               userId={userId}
               postId={active.id}
-              postText={active.body}
               images={imagesOf(active)}
               editable={active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'}
               online={online}
@@ -812,6 +859,7 @@ export function CapturePage() {
                 )}
               </div>
             )}
+            {!speech.listening && !speech.transcribing && <LeftToday action="voice" />}
           </>
         ) : (
           <>
@@ -874,13 +922,34 @@ export function CapturePage() {
             {limitNotice}
           </p>
         )}
+        <fieldset className="mt-4">
+          <legend className="text-sm font-semibold text-[var(--color-text-primary)]">Write for</legend>
+          <div className="mt-1 flex flex-wrap gap-x-5 gap-y-2">
+            {PLATFORMS.map((p) => {
+              const on = platforms.includes(p.id)
+              return (
+                <label key={p.id} className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                  <input type="checkbox" checked={on} onChange={() => togglePlatform(p.id)}
+                    disabled={on && platforms.length === 1} className="h-4 w-4 accent-[var(--color-primary-dark)]" />
+                  {p.name}
+                </label>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+            At least one. Choose what is ticked at the start in <Link to="/dashboard/settings" className="underline">Settings</Link>.
+          </p>
+        </fieldset>
         <div className="mt-4 flex flex-wrap justify-between gap-2">
           <button type="button" className={outlineBtn} onClick={startOver} disabled={!text && !ideaId}>
             Clear
           </button>
-          <button type="button" className={primaryBtn} onClick={makePosts} disabled={!online}>
-            Make my posts
-          </button>
+          <div className="flex flex-col items-end gap-1">
+            <button type="button" className={primaryBtn} onClick={makePosts} disabled={!online}>
+              Make my posts
+            </button>
+            <LeftToday action="draft" />
+          </div>
         </div>
       </Card>
     </div>

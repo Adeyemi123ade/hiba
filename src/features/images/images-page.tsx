@@ -1,8 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Download, ImagePlus, Loader2, Sparkles, Trash2 } from 'lucide-react'
-import { clsx } from 'clsx'
+import { Download, ImagePlus, Loader2, Trash2 } from 'lucide-react'
 import { Card, SkeletonCard } from '@/components/ui/card'
 import { useSession } from '@/features/auth/use-session'
 import { STATUS_LABELS, type PostStatus } from '@/features/content/api/content-service'
@@ -11,18 +10,11 @@ import {
   IMAGE_ALT_MAX, IMAGE_ERROR_TEXT, ImageError, deleteFromLibrary, saveLibraryAlt, uploadToLibrary,
   type ImageErrorCode, type ImageUse, type LibraryImage,
 } from '@/features/content/api/image-service'
-import { GenerateImagePanel } from '@/features/images/image-components'
 import { LIBRARY_KEY, outlineBtn, primaryBtn, useLibrary } from '@/features/images/use-library'
 
-type Filter = 'all' | 'generated' | 'upload'
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'generated', label: 'Created with AI' },
-  { id: 'upload', label: 'Uploaded' },
-]
 const codeOf = (e: unknown): ImageErrorCode => (e instanceof ImageError ? e.code : 'upload')
 
-/** H07-S02 / HPD-59: every image the person uploaded or created, ready to use on a post. */
+/** H07-S02 / HPD-59: every image the person uploaded, ready to use again on any post. */
 export function ImagesPage() {
   const { session } = useSession()
   const userId = session?.user.id
@@ -30,16 +22,11 @@ export function ImagesPage() {
   const queryClient = useQueryClient()
   const { library, thumbs } = useLibrary(Boolean(userId))
   const fileInput = useRef<HTMLInputElement>(null)
-  const [filter, setFilter] = useState<Filter>('all')
-  const [creating, setCreating] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<ImageErrorCode | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
-  const images = useMemo(
-    () => (library.data?.images ?? []).filter((i) => filter === 'all' || i.source === filter),
-    [library.data, filter],
-  )
+  const images = library.data?.images ?? []
   const refresh = () => queryClient.invalidateQueries({ queryKey: LIBRARY_KEY })
 
   async function upload(list: FileList | null) {
@@ -64,15 +51,12 @@ export function ImagesPage() {
     <div>
       <h1 className="mb-1 text-2xl font-bold text-[var(--color-text-primary)]">Images</h1>
       <p className="mb-5 text-[var(--color-text-secondary)]">
-        Every image you upload or create with Hiba. Add them to your LinkedIn posts from the post itself.
+        Every image you upload is kept here, so you can use it again on any LinkedIn post. Add them from the post itself.
       </p>
 
       <Card>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={primaryBtn} onClick={() => setCreating((c) => !c)} aria-expanded={creating} disabled={!online}>
-            <Sparkles size={16} aria-hidden="true" /> {creating ? 'Close' : 'Create with AI'}
-          </button>
-          <button type="button" className={outlineBtn} onClick={() => fileInput.current?.click()} disabled={uploading || !online}>
+          <button type="button" className={primaryBtn} onClick={() => fileInput.current?.click()} disabled={uploading || !online}>
             {uploading ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ImagePlus size={16} aria-hidden="true" />}
             {uploading ? 'Uploading...' : 'Upload images'}
           </button>
@@ -80,11 +64,6 @@ export function ImagesPage() {
             aria-label="Choose images to upload" tabIndex={-1} onChange={(e) => upload(e.target.files)} />
         </div>
         <p className="mt-1 text-xs text-[var(--color-text-secondary)]">JPG, PNG or GIF, up to 5 MB each.</p>
-        {creating && (
-          <div className="mt-3">
-            <GenerateImagePanel online={online} onCreated={() => { setCreating(false); setNotice('Your new image is ready. It is first in the list below.') }} />
-          </div>
-        )}
         {notice && <p role="status" className="mt-2 text-sm text-emerald-800">{notice}</p>}
         {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{IMAGE_ERROR_TEXT[error]}</p>}
       </Card>
@@ -99,17 +78,7 @@ export function ImagesPage() {
 
       {library.isSuccess && (
         <Card>
-          <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Show">
-            {FILTERS.map((f) => (
-              <button key={f.id} type="button" aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}
-                className={clsx('rounded-full border px-3 py-1 text-sm', filter === f.id
-                  ? 'border-[var(--color-primary-dark)] bg-[var(--color-primary-soft)] font-semibold text-[var(--color-primary-dark)]'
-                  : 'border-[var(--color-border)] text-[var(--color-text-primary)]')}>
-                {f.label}
-              </button>
-            ))}
-            <span className="text-sm text-[var(--color-text-secondary)]">{images.length} image{images.length === 1 ? '' : 's'}</span>
-          </div>
+          <p className="mb-3 text-sm text-[var(--color-text-secondary)]">{images.length} image{images.length === 1 ? '' : 's'}</p>
           {images.length ? (
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {images.map((img) => (
@@ -119,7 +88,7 @@ export function ImagesPage() {
             </ul>
           ) : (
             <p className="text-sm text-[var(--color-text-secondary)]">
-              {filter === 'all' ? 'No images yet. Create one with AI or upload your own.' : 'No images here yet.'}
+              No images yet. Upload your own, or add images to a post and they appear here.
             </p>
           )}
         </Card>
@@ -169,9 +138,6 @@ function ImageTile({ image, url, uses, online, onChanged }: {
       <div className="relative flex h-44 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-bg-soft-green)]">
         {url ? <img src={url} alt={alt || 'Image in your library'} className="h-full w-full object-cover" />
           : <Loader2 size={20} className="animate-spin text-[var(--color-text-secondary)]" aria-label="Loading preview" />}
-        {image.source === 'generated' && (
-          <span className="absolute left-1.5 top-1.5 rounded-full bg-black/60 px-2 py-0.5 text-xs font-semibold text-white">AI</span>
-        )}
       </div>
       <p className="text-xs text-[var(--color-text-secondary)]">
         {new Date(image.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -182,7 +148,6 @@ function ImageTile({ image, url, uses, online, onChanged }: {
           ))}</>
         ) : 'Not on any post'}
       </p>
-      {image.prompt && <p className="line-clamp-2 text-xs text-[var(--color-text-secondary)]" title={image.prompt}>Asked for: {image.prompt}</p>}
       <label className="text-xs font-semibold text-[var(--color-text-primary)]">
         Description <span className="font-normal text-[var(--color-text-secondary)]">(for screen readers)</span>
         <input value={alt} maxLength={IMAGE_ALT_MAX} onChange={(e) => { setAlt(e.target.value); setAltState('idle') }} onBlur={saveAlt}

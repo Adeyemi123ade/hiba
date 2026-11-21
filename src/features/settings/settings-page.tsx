@@ -3,6 +3,7 @@ import { LinkedInConnectionCard } from '@/features/linkedin/linkedin-components'
 import { ProfileSettings } from '@/features/settings/profile-settings'
 import { NameSettings } from '@/features/settings/name-settings'
 import { VoiceSettings } from '@/features/settings/voice-settings'
+import { PlatformSettings } from '@/features/settings/platform-settings'
 
 const SECTIONS = [
   { id: 'settings-profile', label: 'Profile and preferences' },
@@ -29,6 +30,7 @@ export function SettingsPage() {
         <NameSettings />
         <ProfileSettings />
         <VoiceSettings />
+        <PlatformSettings />
       </section>
 
       <section id="settings-accounts" aria-labelledby="accounts-title" className="scroll-mt-4">
@@ -37,7 +39,7 @@ export function SettingsPage() {
         <Card>
           <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">X and Substack</h3>
           <p className="text-sm text-[var(--color-text-secondary)]">
-            No connection needed, and none is offered yet. Hiba writes the drafts, and you use Copy to post them yourself.
+            No connection needed, and none is offered yet. Tick them under Platforms to write for, and Hiba writes those drafts too. You use Copy to post them yourself.
           </p>
         </Card>
       </section>

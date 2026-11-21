@@ -12,6 +12,7 @@
 // Optional secret TRANSCRIBE_MODEL picks the model (default below). If OpenAI says that model is
 // not available to the account, the function tries FALLBACK_MODEL once.
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { audioCost, checkAllowance, isBusy, recordUsage, retryDelayMs } from '../_shared/usage.ts'
 
 const RATE_LIMIT_PER_HOUR = 30
 export const MAX_BYTES = 10 * 1024 * 1024
@@ -38,7 +39,7 @@ function withOrigin(res: Response, origin: string | null): Response {
 }
 
 type ErrorCode =
-  | 'bad_request' | 'unauthorized' | 'too_large' | 'rate_limited' | 'not_configured' | 'failed' | 'server_error'
+  | 'bad_request' | 'unauthorized' | 'too_large' | 'rate_limited' | 'not_configured' | 'failed' | 'server_error' | 'busy'
 
 function reply(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -76,7 +77,19 @@ export function vocabularyHint(profile: Record<string, unknown> | null): string 
   return parts.filter(Boolean).join(' ').slice(0, 800)
 }
 
-async function callOpenAI(key: string, model: string, audio: Blob, filename: string, prompt: string) {
+type Result =
+  | { ok: true; text: string; tokensIn: number; tokensOut: number; seconds: number | null }
+  | { ok: false; modelProblem: boolean; busy: boolean; why: string; waitMs?: number }
+
+/** One try, and one more after a short wait if OpenAI says it is busy. */
+async function callOpenAI(key: string, model: string, audio: Blob, filename: string, prompt: string): Promise<Result> {
+  const first = await callOnce(key, model, audio, filename, prompt)
+  if (first.ok || !first.busy) return first
+  await new Promise((r) => setTimeout(r, first.waitMs ?? 1500))
+  return callOnce(key, model, audio, filename, prompt)
+}
+
+async function callOnce(key: string, model: string, audio: Blob, filename: string, prompt: string): Promise<Result> {
   const form = new FormData()
   form.append('file', audio, filename)
   form.append('model', model)
@@ -94,13 +107,21 @@ async function callOpenAI(key: string, model: string, audio: Blob, filename: str
       // Only the status and OpenAI's own message are logged, never the audio or the transcript.
       console.error('OpenAI transcription error', model, res.status, detail)
       const modelProblem = (res.status === 400 || res.status === 404) && /model/i.test(detail)
-      return { ok: false as const, modelProblem }
+      const busy = isBusy(res.status, detail)
+      return { ok: false, modelProblem, busy, why: `OpenAI transcription error ${res.status}`, ...(busy ? { waitMs: retryDelayMs(res) } : {}) }
     }
     const data = await res.json()
-    return { ok: true as const, text: typeof data?.text === 'string' ? data.text.trim() : '' }
+    const u = data?.usage
+    return {
+      ok: true,
+      text: typeof data?.text === 'string' ? data.text.trim() : '',
+      tokensIn: Number(u?.input_tokens) || 0,
+      tokensOut: Number(u?.output_tokens) || 0,
+      seconds: u?.type === 'duration' && Number(u?.seconds) > 0 ? Number(u.seconds) : null,
+    }
   } catch (e) {
     console.error('OpenAI transcription request failed', e instanceof Error ? e.name : 'unknown')
-    return { ok: false as const, modelProblem: false }
+    return { ok: false, modelProblem: false, busy: false, why: 'Could not reach OpenAI or it took too long' }
   } finally {
     clearTimeout(timer)
   }
@@ -119,11 +140,14 @@ async function handle(req: Request): Promise<Response> {
   if (length > MAX_BYTES + 64 * 1024) return fail(413, 'too_large')
 
   let audio: File
+  // How long the recording is, as measured by the browser (used for the cost estimate only).
+  let seconds = 0
   try {
     const form = await req.formData()
     const file = form.get('audio')
     if (!(file instanceof File)) return fail(400, 'bad_request')
     audio = file
+    seconds = Math.min(330, Math.max(0, Number(form.get('seconds')) || 0))
   } catch {
     return fail(400, 'bad_request')
   }
@@ -145,6 +169,8 @@ async function handle(req: Request): Promise<Response> {
     .from('transcription_requests').select('id', { count: 'exact', head: true }).gte('created_at', since)
   if (countError) return fail(500, 'server_error')
   if ((count ?? 0) >= RATE_LIMIT_PER_HOUR) return fail(429, 'rate_limited')
+  const allowance = await checkAllowance(db, 'voice')
+  if (!allowance.allowed) return reply(429, { error: 'daily_limit', nextAt: allowance.nextAt })
 
   const key = Deno.env.get('OPENAI_API_KEY')
   if (!key) return fail(503, 'not_configured')
@@ -157,10 +183,20 @@ async function handle(req: Request): Promise<Response> {
   const prompt = vocabularyHint(profile)
   const filename = `recording.${ext}`
 
-  let result = await callOpenAI(key, MODEL, audio, filename, prompt)
+  let model = MODEL
+  let calls = 1
+  let result = await callOpenAI(key, model, audio, filename, prompt)
   if (!result.ok && result.modelProblem && MODEL !== FALLBACK_MODEL) {
-    result = await callOpenAI(key, FALLBACK_MODEL, audio, filename, prompt)
+    model = FALLBACK_MODEL
+    calls += 1
+    result = await callOpenAI(key, model, audio, filename, prompt)
   }
-  if (!result.ok) return fail(502, 'failed')
+  const audioSeconds = result.ok && result.seconds ? result.seconds : seconds
+  await recordUsage(db, {
+    userId, operation: 'voice', ok: result.ok, model, calls,
+    input: result.ok ? result.tokensIn : 0, output: result.ok ? result.tokensOut : 0,
+    audioSeconds, cost: result.ok ? audioCost(model, audioSeconds) : 0, error: result.ok ? undefined : result.why,
+  })
+  if (!result.ok) return fail(502, result.busy ? 'busy' : 'failed')
   return reply(200, { text: result.text })
 }
