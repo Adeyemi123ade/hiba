@@ -8,8 +8,6 @@ import { clsx } from 'clsx'
 import { Card } from '@/components/ui/card'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { LeftToday } from '@/features/content/left-today'
-import { EmojiButton } from '@/components/ui/emoji-picker'
-import { insertAtCursor, placeCaret } from '@/lib/emoji'
 import { ALLOWANCES_KEY } from '@/features/content/use-allowances'
 import { ContentError, ERROR_TEXT, type ContentErrorCode, type PostStatus } from '@/features/content/api/content-service'
 import {
@@ -93,7 +91,6 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   const [copied, setCopied] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const prevStatus = useRef(postStatus)
-  const editBox = useRef<HTMLTextAreaElement>(null)
 
   const comments = query.data ?? []
   const published = postStatus === 'published'
@@ -413,17 +410,11 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
                   {editing?.id === c.id ? (
                     <div className="mt-2">
                       <label htmlFor={`comment-edit-${c.id}`} className="sr-only">Edit comment {i + 1}</label>
-                      <textarea ref={editBox} id={`comment-edit-${c.id}`} value={editing.text} maxLength={COMMENT_MAX_CHARS + 200}
+                      <textarea id={`comment-edit-${c.id}`} value={editing.text} maxLength={COMMENT_MAX_CHARS + 200}
                         aria-invalid={Boolean(editError)} aria-describedby={`comment-count-${c.id}`}
                         onChange={(e) => { setEditing({ id: c.id, text: e.target.value }); setEditError(null) }}
                         className="min-h-[110px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] p-2 text-sm aria-[invalid=true]:border-red-700" />
                       <p id={`comment-count-${c.id}`} className={clsx('flex flex-wrap items-center gap-1 text-xs', editing.text.length > COMMENT_MAX_CHARS ? 'text-red-700' : 'text-[var(--color-text-secondary)]')}>
-                        <EmojiButton onPick={(emoji) => {
-                          const next = insertAtCursor(editBox.current, editing.text, emoji)
-                          setEditing({ id: c.id, text: next.text })
-                          setEditError(null)
-                          placeCaret(editBox.current, next.caret)
-                        }} />
                         {editing.text.trim() ? editing.text.trim().split(/\s+/).length : 0} words (aim for 20 to 50) · {editing.text.length} of {COMMENT_MAX_CHARS} characters
                       </p>
                       {c.status === 'approved' && <p className="text-xs text-amber-800">Saving a change sends this comment back to draft. Approve it again to post it.</p>}

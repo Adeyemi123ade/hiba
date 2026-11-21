@@ -10,8 +10,6 @@ import { useSpeechInput } from '@/features/onboarding/use-speech-input'
 import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
-import { EmojiButton } from '@/components/ui/emoji-picker'
-import { insertAtCursor, placeCaret } from '@/lib/emoji'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { SCHEDULE_ERROR_TEXT, ScheduleError, backToApproved } from '@/features/content/api/schedule-service'
@@ -80,8 +78,6 @@ export function CapturePage() {
   const [chosenPlatforms, setChosenPlatforms] = useState<Platform[] | null>(null)
   const platforms = chosenPlatforms ?? defaultPlatforms.data ?? ['linkedin']
   const [adding, setAdding] = useState<Platform | null>(null)
-  const draftBox = useRef<HTMLTextAreaElement>(null)
-  const ideaBox = useRef<HTMLTextAreaElement>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [approving, setApproving] = useState(false)
@@ -607,7 +603,6 @@ export function CapturePage() {
           )}
           <label htmlFor="draft-text" className="sr-only">Draft text</label>
           <textarea
-            ref={draftBox}
             id="draft-text"
             value={active.body}
             readOnly={isApproved}
@@ -617,13 +612,6 @@ export function CapturePage() {
           />
           <div id="draft-count" className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)]">
             <span className="flex flex-wrap items-center gap-1">
-              {!isApproved && (
-                <EmojiButton onPick={(emoji) => {
-                  const next = insertAtCursor(draftBox.current, active.body, emoji)
-                  editActive({ body: next.text })
-                  placeCaret(draftBox.current, next.caret)
-                }} />
-              )}
               {count.text}
               {active.platform === 'x' && ' · leave an empty line between posts'}
             </span>
@@ -898,7 +886,6 @@ export function CapturePage() {
           </p>
         )}
         <textarea
-          ref={ideaBox}
           id="idea"
           value={text}
           maxLength={IDEA_MAX}
@@ -926,13 +913,6 @@ export function CapturePage() {
           )}
         />
         <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)]">
-          <EmojiButton onPick={(emoji) => {
-            if (text.length + emoji.length > IDEA_MAX) return
-            const next = insertAtCursor(ideaBox.current, text, emoji)
-            setText(next.text)
-            setFieldError(null)
-            placeCaret(ideaBox.current, next.caret)
-          }} />
           {fieldError ? (
             <span id="idea-error" role="alert" className="text-sm text-[var(--color-error)]">{fieldError}</span>
           ) : (
