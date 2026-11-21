@@ -9,6 +9,8 @@ import {
   startLinkedInConnect, type LinkedInErrorCode,
 } from '@/features/linkedin/linkedin-service'
 import { imagePreviewUrl, type PostImageItem } from '@/features/content/api/image-service'
+import type { PostAttachment } from '@/features/content/api/media-service'
+import { AttachmentCard } from '@/features/capture/post-attachment'
 import { fetchComments, type PostComment } from '@/features/content/api/comments-service'
 import {
   SCHEDULE_ERROR_TEXT, ScheduleError, cancelSchedule, checkScheduleTime, formatWhen, fromLocalInput, schedulePost,
@@ -155,7 +157,7 @@ interface Preview {
   commentsFailed: boolean
 }
 
-export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished, text, images, followUps, scheduledFor, onScheduleChange }: {
+export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished, onPublished, text, images, attachment = null, followUps, scheduledFor, onScheduleChange }: {
   postId: string
   ideaId: string
   publishedUrl: string | null
@@ -165,6 +167,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
   text: string
   /** Every image on the post, in order. All of them are posted together with the text. */
   images: PostImageItem[]
+  attachment?: PostAttachment | null
   /** Whether follow-up comments are switched on in Settings. */
   followUps: boolean
   /** Set when the post is scheduled: Hiba posts it then, even if the person is offline. */
@@ -199,7 +202,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
         {warning && <span className="text-xs text-amber-800">It is live on LinkedIn, but Hiba could not update its status. Refresh to see it.</span>}
         {imageMissing && (
           <span role="alert" className="text-xs text-red-700">
-            LinkedIn reported the post went out without its image. Please tell us, and check the post on LinkedIn.
+            LinkedIn reported the post went out without everything you attached. Please check the post on LinkedIn.
           </span>
         )}
       </div>
@@ -238,7 +241,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
       setWarning(Boolean(res.warning))
       // Belt and braces: the server says whether the image went with the post.
       const sent = typeof res.images === 'number' ? res.images : res.image ? 1 : 0
-      setImageMissing(sent < images.length)
+      setImageMissing(attachment ? res.attachment === false : sent < images.length)
       setConfirming(false)
       setPreview(null)
       onPublished(res.url)
@@ -265,7 +268,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
     setError(null)
     try {
       const [current, imageUrls, comments] = await Promise.all([
-        linkedInFunctionIsCurrent(images.length),
+        linkedInFunctionIsCurrent(images.length, Boolean(attachment)),
         Promise.all(images.map((img) => imagePreviewUrl(img.path).catch(() => null))),
         followUps ? fetchComments(postId).then((list) => ({ list, failed: false })).catch(() => ({ list: [] as PostComment[], failed: true })) : Promise.resolve({ list: [] as PostComment[], failed: false }),
       ])
@@ -325,10 +328,9 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
         </div>
       ) : preview && !preview.current && mode === 'now' ? (
         <div role="alert" className="rounded-[var(--radius-md)] border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-          <p className="font-semibold">Hiba cannot post right now.</p>
+          <p className="font-semibold">Posting to LinkedIn is being updated right now.</p>
           <p className="mt-1">
-            The LinkedIn function in Supabase is out of date. It could post your text without all of its images or fail to post comments,
-            so nothing was posted. In Supabase, go to Edge Functions, redeploy <strong>linkedin</strong> with Verify JWT on, then try again.
+            Nothing was posted, so your post is safe. Please try again a little later.
           </p>
           <button type="button" className={`${outlineBtn} mt-2`} onClick={() => { setConfirming(false); setPreview(null) }}>OK</button>
         </div>
@@ -363,11 +365,15 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
                 ))}
               </div>
             )}
+            {attachment && <div className="mt-3"><AttachmentCard postId={postId} attachment={attachment} editable={false} /></div>}
           </div>
           {images.length > 1 && (
             <p className="mt-2 text-xs text-[var(--color-text-secondary)]">All {images.length} images go out together as one post, in this order.</p>
           )}
-          {!images.length && (
+          {attachment?.kind === 'document' && attachment.mime === 'application/pdf' && (
+            <p className="mt-2 text-xs text-[var(--color-text-secondary)]">Your PDF shows on LinkedIn as a carousel people swipe through.</p>
+          )}
+          {!images.length && !attachment && (
             <p className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
               No image attached. Posts with an image usually get much more attention. You can add one above, or post without it.
             </p>

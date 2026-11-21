@@ -1,6 +1,7 @@
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { IMAGE_BUCKET, imagesOf, type PostImageItem } from '@/features/content/api/image-service'
+import { MEDIA_BUCKET, type PostAttachment } from '@/features/content/api/media-service'
 
 export type Platform = 'linkedin' | 'x' | 'substack'
 export type PostStatus =
@@ -34,6 +35,8 @@ export interface Post {
   image_alt?: string | null
   /** Every image on the post, in order (the first is also in image_path / image_alt). */
   images?: PostImageItem[] | null
+  /** A video or document instead of images (LinkedIn allows one or the other). */
+  attachment?: PostAttachment | null
   /** What the post was before it was archived (HPD-57). Only on the Posts page. */
   archived_from?: PostStatus | null
   archived_at?: string | null
@@ -88,7 +91,7 @@ export function lengthCheck(platform: Platform, body: string): { text: string; w
 }
 
 const POST_COLUMNS =
-  'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, images, updated_at'
+  'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, images, attachment, updated_at'
 
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
@@ -282,7 +285,7 @@ export const ERROR_TEXT: Record<ContentErrorCode, string> = {
   unknown: 'Something went wrong. Your idea is kept on this page. Please try again.',
   needs_clarification: 'Before I write, I need to understand your main point a little better. Add a sentence to your idea, then try again.',
   nothing_to_change: 'Every post for this idea is already approved, so there is nothing left to rewrite.',
-  image_delete_failed: 'We could not delete the image, so nothing was deleted. Please try again.',
+  image_delete_failed: 'We could not delete the post\'s images or files, so nothing was deleted. Please try again.',
   outdated: 'This part of Hiba is being updated, so nothing was changed. Please try again later.',
 }
 
@@ -407,7 +410,13 @@ export const DELETE_WORD = 'DELETE'
 export async function deletePostForever(post: Pick<Post, 'id' | 'image_path'>): Promise<void> {
   if (offlineNow()) throw new ContentError('offline')
   // Every image on the post, not only the first one the Posts page knows about.
-  const { data: row } = await supabase.from('posts').select('images').eq('id', post.id).maybeSingle()
+  const { data: row } = await supabase.from('posts').select('images, attachment').eq('id', post.id).maybeSingle()
+  // Its video or document file is only ever used by this post.
+  const attached = (row?.attachment as PostAttachment | null)?.path
+  if (attached) {
+    const { error } = await supabase.storage.from(MEDIA_BUCKET).remove([attached])
+    if (error) throw offlineNow() ? new ContentError('offline') : new ContentError('image_delete_failed')
+  }
   const mine = [...new Set([...imagesOf({ images: row?.images as PostImageItem[] | null }).map((i) => i.path), ...(post.image_path ? [post.image_path] : [])])]
   // An image another post also uses stays, so that post keeps it.
   const { data: others } = mine.length

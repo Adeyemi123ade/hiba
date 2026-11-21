@@ -8,10 +8,12 @@ import { clsx } from 'clsx'
 import { Card } from '@/components/ui/card'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { LeftToday } from '@/features/content/left-today'
+import { EmojiButton } from '@/components/ui/emoji-picker'
+import { insertAtCursor, placeCaret } from '@/lib/emoji'
 import { ALLOWANCES_KEY } from '@/features/content/use-allowances'
 import { ContentError, ERROR_TEXT, type ContentErrorCode, type PostStatus } from '@/features/content/api/content-service'
 import {
-  COMMENTS_MAX, COMMENTS_MIN, COMMENT_MAX_CHARS, approveComments, draftingFunctionIsCurrent, deleteComment, fetchComments, generateComments,
+  COMMENTS_MAX, COMMENTS_MIN, COMMENT_MAX_CHARS, GAP_CHOICES, approveComments, draftingFunctionIsCurrent, deleteComment, fetchComments, generateComments,
   queueComments, rewriteComment, saveOrder, updateComment, withdrawApproval, type PostComment,
 } from '@/features/content/api/comments-service'
 
@@ -91,6 +93,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   const [copied, setCopied] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const prevStatus = useRef(postStatus)
+  const editBox = useRef<HTMLTextAreaElement>(null)
 
   const comments = query.data ?? []
   const published = postStatus === 'published'
@@ -179,6 +182,12 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     queryClient.setQueryData(key, await rewriteComment(ideaId, c.id))
   }, c.id, `Comment ${c.position} was written again. Approve it again if you want it posted.`)
 
+  // The wait before this comment (after the post for the first one, after the previous one otherwise).
+  const setGap = (c: PostComment, gap: number | null) => run(async () => {
+    queryClient.setQueryData<PostComment[]>(key, (list) => list?.map((x) => (x.id === c.id ? { ...x, gap_seconds: gap } : x)))
+    await updateComment(c.id, { gap_seconds: gap })
+  }, c.id)
+
   const toggle = (c: PostComment) => run(async () => {
     queryClient.setQueryData<PostComment[]>(key, (list) => list?.map((x) => (x.id === c.id ? { ...x, included: !c.included } : x)))
     await updateComment(c.id, { included: !c.included })
@@ -225,7 +234,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     await refresh()
     setPostError(null)
   }, 'all', published
-    ? 'Approved. Hiba posts them under your LinkedIn post one by one, 15 to 60 seconds apart. You can close this page or your laptop.'
+    ? 'Approved. Hiba posts them under your LinkedIn post one by one, with the waits you chose. You can close this page or your laptop.'
     : postStatus === 'scheduled'
       ? 'Approved. Hiba posts these under your post automatically after it goes live. You do not need to keep this page open.'
       : 'Approved. When you post this to LinkedIn from Hiba, these comments are posted under it automatically, one by one. You do not need to keep this page open.')
@@ -284,7 +293,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       </h2>
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
         Short comments (20 to 50 words) that Hiba posts under your own LinkedIn post, so the conversation goes deeper.
-        Only comments you approve are posted, one by one, 15 to 60 seconds apart, after your post is live.
+        Only comments you approve are posted, one by one, after your post is live. Choose how long Hiba waits before each one.
         Hiba posts them by itself, even if you close this page or your laptop.
       </p>
 
@@ -404,11 +413,17 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
                   {editing?.id === c.id ? (
                     <div className="mt-2">
                       <label htmlFor={`comment-edit-${c.id}`} className="sr-only">Edit comment {i + 1}</label>
-                      <textarea id={`comment-edit-${c.id}`} value={editing.text} maxLength={COMMENT_MAX_CHARS + 200}
+                      <textarea ref={editBox} id={`comment-edit-${c.id}`} value={editing.text} maxLength={COMMENT_MAX_CHARS + 200}
                         aria-invalid={Boolean(editError)} aria-describedby={`comment-count-${c.id}`}
                         onChange={(e) => { setEditing({ id: c.id, text: e.target.value }); setEditError(null) }}
                         className="min-h-[110px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] p-2 text-sm aria-[invalid=true]:border-red-700" />
-                      <p id={`comment-count-${c.id}`} className={clsx('text-xs', editing.text.length > COMMENT_MAX_CHARS ? 'text-red-700' : 'text-[var(--color-text-secondary)]')}>
+                      <p id={`comment-count-${c.id}`} className={clsx('flex flex-wrap items-center gap-1 text-xs', editing.text.length > COMMENT_MAX_CHARS ? 'text-red-700' : 'text-[var(--color-text-secondary)]')}>
+                        <EmojiButton onPick={(emoji) => {
+                          const next = insertAtCursor(editBox.current, editing.text, emoji)
+                          setEditing({ id: c.id, text: next.text })
+                          setEditError(null)
+                          placeCaret(editBox.current, next.caret)
+                        }} />
                         {editing.text.trim() ? editing.text.trim().split(/\s+/).length : 0} words (aim for 20 to 50) · {editing.text.length} of {COMMENT_MAX_CHARS} characters
                       </p>
                       {c.status === 'approved' && <p className="text-xs text-amber-800">Saving a change sends this comment back to draft. Approve it again to post it.</p>}
@@ -420,6 +435,18 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
                     </div>
                   ) : (
                     <p className="mt-2 whitespace-pre-line break-words text-sm text-[var(--color-text-primary)]">{c.body}</p>
+                  )}
+
+                  {c.included && c.status !== 'published' && (
+                    <label className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                      {i === 0 ? 'Wait after the post goes live:' : 'Wait after the previous comment:'}
+                      <select value={c.gap_seconds ?? ''} disabled={!online || busy || locked || Boolean(c.due_at)}
+                        onChange={(e) => setGap(c, e.target.value ? Number(e.target.value) : null)}
+                        className="h-8 rounded-[8px] border border-[var(--color-border)] bg-[var(--color-surface)] px-1 text-xs text-[var(--color-text-primary)]">
+                        {GAP_CHOICES.map((g) => <option key={g.label} value={g.value ?? ''}>{g.label}</option>)}
+                      </select>
+                      {c.due_at && c.status === 'approved' && <span>(already planned)</span>}
+                    </label>
                   )}
 
                   {c.status === 'failed' && c.failure_reason && <p className="mt-2 text-sm text-red-700">{c.failure_reason}</p>}

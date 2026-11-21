@@ -15,9 +15,10 @@ import {
   b64, createComment, createPost, decryptToken, encryptToken, encryptionKey, linkedinFetch, postImages, postTooLong, postUrl,
   uploadImages,
 } from '../_shared/linkedin.ts'
+import { createMediaPost, postAttachment, uploadAttachment } from '../_shared/linkedin-media.ts'
 
 const STATE_MAX_AGE_MS = 10 * 60 * 1000
-const FUNCTION_VERSION = 4
+const FUNCTION_VERSION = 5
 const PUBLISH_LIMIT_PER_HOUR = 10
 // Follow-up comments (owner decision, 19 Nov 2026): at most 10 per post, so 30 an hour is plenty.
 const COMMENT_LIMIT_PER_HOUR = 30
@@ -44,7 +45,7 @@ function withOrigin(res: Response, origin: string | null): Response {
 type ErrorCode =
   | 'bad_request' | 'unauthorized' | 'not_found' | 'not_configured' | 'state_invalid' | 'linkedin_failed'
   | 'not_connected' | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited'
-  | 'too_long' | 'image_failed' | 'server_error' | 'post_not_published' | 'comment_not_allowed' | 'comment_unconfirmed'
+  | 'too_long' | 'image_failed' | 'media_failed' | 'server_error' | 'post_not_published' | 'comment_not_allowed' | 'comment_unconfirmed'
 
 function reply(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -98,7 +99,7 @@ async function handle(req: Request): Promise<Response> {
   // ---------- info: lets the app check this function is up to date before posting ----------
   // An out-of-date copy would post without the image and could not post comments, so the app
   // refuses to post unless this answers with both features. Bump FUNCTION_VERSION on changes.
-  if (action === 'info') return reply(200, { version: FUNCTION_VERSION, features: ['images', 'comments', 'multi-image'] })
+  if (action === 'info') return reply(200, { version: FUNCTION_VERSION, features: ['images', 'comments', 'multi-image', 'media'] })
 
   // ---------- start: build the LinkedIn approval link ----------
   if (action === 'start') {
@@ -195,8 +196,9 @@ async function handle(req: Request): Promise<Response> {
 
     const cols = 'id, platform, status, body, external_id, external_url, image_path, image_alt'
     // deno-lint-ignore no-explicit-any
-    let { data: post, error: postError }: { data: any; error: unknown } = await db.from('posts').select(`${cols}, images`).eq('id', postId).maybeSingle()
-    // Before migration 0016 there is no image list yet: read the single image only.
+    let { data: post, error: postError }: { data: any; error: unknown } = await db.from('posts').select(`${cols}, images, attachment`).eq('id', postId).maybeSingle()
+    // Before migration 0020 there is no attachment yet; before 0016 no image list either.
+    if (postError) ({ data: post, error: postError } = await db.from('posts').select(`${cols}, images`).eq('id', postId).maybeSingle())
     if (postError) ({ data: post } = await db.from('posts').select(cols).eq('id', postId).maybeSingle())
     if (!post || post.platform !== 'linkedin') return fail(404, 'not_found')
     if (post.status === 'published') return fail(409, 'already_published', post.external_url ?? undefined)
@@ -226,18 +228,30 @@ async function handle(req: Request): Promise<Response> {
 
     // Images first, in order: if any one cannot be sent, nothing is posted and the post goes back
     // to approved. Several images go out as one multi-image post.
-    const images = postImages(post)
+    // A video or document goes out on its own (LinkedIn allows images, or one video, or one document).
+    const attachment = postAttachment(post)
+    const images = attachment ? [] : postImages(post)
     let media: Record<string, unknown>[] | null = null
-    if (images.length) {
-      const uploaded = await uploadImages(db, accessToken, conn.member_id, images)
-      if ('error' in uploaded) {
+    let result
+    if (attachment) {
+      const sent = await uploadAttachment(db, accessToken, conn.member_id, attachment)
+      if ('error' in sent) {
         await release()
-        return fail(uploaded.status, uploaded.error, uploaded.detail)
+        if (sent.detail) console.error('Attachment not sent', sent.detail)
+        return fail(sent.status, sent.error)
       }
-      media = uploaded.media
+      result = await createMediaPost(accessToken, conn.member_id, text, attachment, sent.urn)
+    } else {
+      if (images.length) {
+        const uploaded = await uploadImages(db, accessToken, conn.member_id, images)
+        if ('error' in uploaded) {
+          await release()
+          return fail(uploaded.status, uploaded.error)
+        }
+        media = uploaded.media
+      }
+      result = await createPost(accessToken, conn.member_id, text, media)
     }
-
-    const result = await createPost(accessToken, conn.member_id, text, media)
     if (result.kind === 'no_answer') {
       await release()
       return fail(502, 'linkedin_failed', 'LinkedIn did not answer. Please check your LinkedIn profile before trying again.')
@@ -259,13 +273,13 @@ async function handle(req: Request): Promise<Response> {
     if (error) {
       // The post IS live on LinkedIn; say so rather than inviting a duplicate.
       console.error('Marking post published failed', error.message)
-      return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0, warning: 'saved_status_failed' })
+      return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0, attachment: Boolean(attachment), warning: 'saved_status_failed' })
     }
     // Approved follow-up comments are posted by the background publisher from here on, so they
     // still go out if the person closes the page or the laptop.
     const { error: queueError } = await db.rpc('queue_post_comments', { p_post_id: postId })
     if (queueError) console.error('Queueing comments failed (is migration 0019 run?)', queueError.message)
-    return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0, commentsQueued: !queueError })
+    return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0, attachment: Boolean(attachment), commentsQueued: !queueError })
   }
 
   // ---------- comment: post ONE approved follow-up comment under the person's published post ----------

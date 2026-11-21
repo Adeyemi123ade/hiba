@@ -14,7 +14,6 @@ import { CalendarPage } from '@/features/calendar/calendar-page'
 import { LibraryPage } from '@/features/library/library-page'
 import { ImagesPage } from '@/features/images/images-page'
 import { LinkedInCallbackPage } from '@/features/linkedin/linkedin-callback-page'
-import { AssistantPage } from '@/features/assistant/assistant-page'
 import { SettingsPage } from '@/features/settings/settings-page'
 
 // Route map — Front-end Architecture, section 2 (Routing Structure).
@@ -42,7 +41,6 @@ export const router = createBrowserRouter([
               { path: 'library', element: <LibraryPage /> },
               { path: 'images', element: <ImagesPage /> },
               { path: 'linkedin/callback', element: <LinkedInCallbackPage /> },
-              { path: 'assistant', element: <AssistantPage /> },
               { path: 'settings/*', element: <SettingsPage /> },
             ],
           },
