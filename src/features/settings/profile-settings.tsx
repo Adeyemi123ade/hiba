@@ -141,7 +141,7 @@ export function ProfileSettings() {
       const e = err as { code?: string; message?: string; status?: number }
       if (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message ?? '')) setSessionExpired(true)
       else if (!navigator.onLine || /failed to fetch|network/i.test(e.message ?? '')) {
-        setError('We could not reach the server. Your change is kept on this page. Check your connection, then press Save again.')
+        setError('We could not connect. Your change is kept on this page. Check your internet connection, then press Save again.')
       } else setError('We could not save that. Your change is kept on this page. Please try again.')
     } finally {
       setSaving(false)

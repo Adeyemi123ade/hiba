@@ -16,6 +16,7 @@ export type LinkedInErrorCode =
 
 export class LinkedInError extends Error {
   readonly code: LinkedInErrorCode
+  /** Only used for "already published", where it is the post's address. Never shown as text. */
   readonly detail?: string
   constructor(code: LinkedInErrorCode, detail?: string) {
     super(code)
@@ -28,9 +29,9 @@ export class LinkedInError extends Error {
 export const LINKEDIN_ERROR_TEXT: Record<LinkedInErrorCode, string> = {
   offline: 'You are offline. Reconnect to the internet, then try again.',
   session_expired: 'Your session expired. Sign in again, then connect LinkedIn.',
-  not_configured: 'LinkedIn is not switched on in Hiba yet. The LinkedIn secrets still need to be added in Supabase.',
+  not_configured: 'Posting to LinkedIn is not available right now. Please try again later.',
   state_invalid: 'That LinkedIn sign in was too old or did not start here. Please press Connect LinkedIn again.',
-  linkedin_failed: 'LinkedIn did not complete the request. Please try again in a moment.',
+  linkedin_failed: 'LinkedIn did not accept this just now. Nothing was posted. Please try again in a moment.',
   not_connected: 'Connect your LinkedIn account first.',
   linkedin_expired: 'Your LinkedIn connection has expired. Reconnect LinkedIn, then try again.',
   not_approved: 'Only approved posts can be published. Approve this post first.',
@@ -40,7 +41,7 @@ export const LINKEDIN_ERROR_TEXT: Record<LinkedInErrorCode, string> = {
   image_failed: 'Your image could not be sent to LinkedIn, so nothing was posted. Try again, or replace the image.',
   cancelled: 'LinkedIn was not connected because the request was cancelled. You can try again any time.',
   post_not_published: 'Post this to LinkedIn from Hiba first. Approved comments are posted under it after that.',
-  comment_not_allowed: 'LinkedIn did not allow Hiba to post comments with your LinkedIn app\'s current permissions. Copy the comment and post it yourself.',
+  comment_not_allowed: 'LinkedIn did not allow Hiba to post this comment. Copy it and post it yourself.',
   comment_unconfirmed: 'LinkedIn did not answer, so Hiba could not confirm whether this comment was posted. Check your post on LinkedIn before trying again.',
   unknown: 'Something went wrong. Please try again.',
 }
@@ -61,8 +62,10 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
       }
       const code = payload.error as LinkedInErrorCode | 'unauthorized' | undefined
       if (code === 'unauthorized') throw new LinkedInError('session_expired')
-      if (code && code in LINKEDIN_ERROR_TEXT) throw new LinkedInError(code as LinkedInErrorCode, payload.detail)
-      throw new LinkedInError('unknown', payload.detail)
+      if (code === 'already_published') throw new LinkedInError(code, payload.detail)
+      if (code && code in LINKEDIN_ERROR_TEXT) throw new LinkedInError(code as LinkedInErrorCode)
+      console.error('LinkedIn service error', res.status, code, payload.detail)
+      throw new LinkedInError('unknown')
     }
     if (typeof navigator !== 'undefined' && !navigator.onLine) throw new LinkedInError('offline')
     // The function is not deployed or could not be reached.

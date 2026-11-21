@@ -2,9 +2,11 @@
 // database (pg_cron, see supabase/sql/publisher_cron.sql). Never called from the browser.
 //
 // 1. Posts that are due: claimed in the database first (so two runs never post the same one),
-//    published to LinkedIn exactly like "Post now", then their approved follow-up comments get due
-//    times 15 to 60 seconds apart.
+//    published to LinkedIn exactly like "Post now", then their approved follow-up comments are
+//    queued 15 to 60 seconds apart (database function queue_post_comments, migration 0019).
 // 2. Comments that are due: the next one of each post, posted as the post's owner.
+// Different people's posts are sent at the same time (up to POST_PARALLEL at once), so many posts
+// due at the same minute all go out within a few minutes. One post's comments always stay in order.
 //
 // Safety
 // - Verify JWT is OFF (the caller is the database, not a person). Every request must carry the
@@ -26,8 +28,12 @@ const MAX_ATTEMPTS = 3
 const RETRY_DELAYS_MIN = [5, 15]
 /** A claim older than this means a run stopped half way: Hiba cannot tell what happened. */
 const STALE_CLAIM_MIN = 10
-const POSTS_PER_RUN = 5
-const COMMENTS_PER_RUN = 10
+// Up to 40 posts and 100 comments per run, sent 8 and 15 at a time. Runs every 15 seconds and may
+// overlap safely (claims use row locks), so about 1,000 posts due together go out in a few minutes.
+const POSTS_PER_RUN = 40
+const POST_PARALLEL = 8
+const COMMENTS_PER_RUN = 100
+const COMMENT_PARALLEL = 15
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
@@ -41,15 +47,13 @@ function sameSecret(a: string, b: string) {
   return diff === 0
 }
 
-/** The owner's rule: a different random gap of 15 to 60 seconds before each comment. */
-function gapsMs(count: number): number[] {
-  const out: number[] = []
-  for (let i = 0; i < count; i++) {
-    let g = 15_000 + Math.floor(Math.random() * 45_001)
-    if (i && Math.round(g / 1000) === Math.round(out[i - 1] / 1000)) g = g >= 59_000 ? g - 2_000 : g + 2_000
-    out.push(g)
-  }
-  return out
+/** Runs `work` on every item, at most `size` at a time. */
+async function inParallel<T>(items: T[], size: number, work: (item: T) => Promise<void>) {
+  let next = 0
+  const lanes = Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (next < items.length) await work(items[next++])
+  })
+  await Promise.all(lanes)
 }
 
 // deno-lint-ignore no-explicit-any
@@ -71,7 +75,8 @@ Deno.serve(async (req) => {
   const summary = { posts: 0, comments: 0 }
   const { data: posts, error: postsError } = await db.rpc('claim_due_posts', { max_posts: POSTS_PER_RUN })
   if (postsError) console.error('Claiming posts failed', postsError.message)
-  for (const post of posts ?? []) {
+  // deno-lint-ignore no-explicit-any
+  await inParallel((posts ?? []) as any[], POST_PARALLEL, async (post) => {
     try {
       await publishPost(db, key, post)
       summary.posts++
@@ -79,18 +84,20 @@ Deno.serve(async (req) => {
       // Unexpected error after the claim: leave it claimed; the stale check reports it safely.
       console.error('Publishing post crashed', post.id, e instanceof Error ? e.message : e)
     }
-  }
+  })
 
   const { data: comments, error: commentsError } = await db.rpc('claim_due_comments', { max_comments: COMMENTS_PER_RUN })
   if (commentsError) console.error('Claiming comments failed', commentsError.message)
-  for (const comment of comments ?? []) {
+  // Each claimed comment belongs to a different post (the claim never takes two of one post).
+  // deno-lint-ignore no-explicit-any
+  await inParallel((comments ?? []) as any[], COMMENT_PARALLEL, async (comment) => {
     try {
       await publishComment(db, key, comment)
       summary.comments++
     } catch (e) {
       console.error('Publishing comment crashed', comment.id, e instanceof Error ? e.message : e)
     }
-  }
+  })
   return json(200, summary)
 })
 
@@ -167,10 +174,16 @@ async function publishPost(db: Db, key: CryptoKey, post: any) {
     return
   }
   if (result.kind === 'expired') return finish('failed', 'LinkedIn refused your connection. Reconnect it in Settings, then schedule the post again.')
-  if (result.kind === 'forbidden') return finish('failed', 'LinkedIn did not allow this post (403). Nothing was posted.')
+  if (result.kind === 'forbidden') {
+    console.error('LinkedIn refused post (403)', post.id, result.detail)
+    return finish('failed', 'LinkedIn did not allow this post. Nothing was posted. Try reconnecting LinkedIn in Settings, then schedule it again.')
+  }
   if (result.kind === 'refused') {
+    console.error('LinkedIn refused post', post.id, result.status, result.detail)
     const transient = result.status === 429 || result.status >= 500
-    return finish(transient ? 'retry' : 'failed', `LinkedIn did not accept the post (${result.status}). Nothing was posted.`)
+    return finish(transient ? 'retry' : 'failed', transient
+      ? 'LinkedIn was busy, so nothing was posted.'
+      : 'LinkedIn did not accept this post. Nothing was posted. Check the text and images, then schedule it again.')
   }
 
   const { error } = await db.from('posts')
@@ -179,16 +192,8 @@ async function publishPost(db: Db, key: CryptoKey, post: any) {
   await logAttempt(db, post.user_id, post.id, null, 'published', images.length ? `With ${images.length} image(s).` : undefined)
 
   // Approved follow-up comments: due one after another, 15 to 60 seconds apart.
-  const { data: queue } = await db.from('post_comments')
-    .select('id').eq('post_id', post.id).eq('status', 'approved').eq('included', true).order('position')
-  if (queue?.length) {
-    let at = Date.now()
-    const gaps = gapsMs(queue.length)
-    for (const [i, c] of queue.entries()) {
-      at += gaps[i]
-      await db.from('post_comments').update({ due_at: new Date(at).toISOString() }).eq('id', c.id).eq('status', 'approved')
-    }
-  }
+  const { error: queueError } = await db.rpc('queue_post_comments', { p_post_id: post.id })
+  if (queueError) console.error('Queueing comments failed', post.id, queueError.message)
 }
 
 // deno-lint-ignore no-explicit-any
@@ -208,8 +213,16 @@ async function publishComment(db: Db, key: CryptoKey, comment: any) {
   const result = await createComment(access.token, access.memberId, String(post.external_id), text)
   if (result.kind === 'no_answer') return fail('LinkedIn did not answer, so Hiba cannot tell whether this comment was posted. Check your post on LinkedIn before trying again.', 'unconfirmed')
   if (result.kind === 'expired') return fail('LinkedIn refused your connection. Reconnect it in Settings, then approve the comment again.')
-  if (result.kind === 'forbidden') return fail('LinkedIn did not allow Hiba to post this comment (403). Copy it and post it yourself.')
-  if (result.kind === 'refused') return fail(`LinkedIn did not accept this comment (${result.status}). Nothing was posted.`)
+  if (result.kind === 'forbidden') {
+    console.error('LinkedIn refused comment (403)', comment.id, result.detail)
+    return fail('LinkedIn did not allow Hiba to post this comment. Copy it and post it yourself.')
+  }
+  if (result.kind === 'refused') {
+    console.error('LinkedIn refused comment', comment.id, result.status, result.detail)
+    return fail(result.status === 429 || result.status >= 500
+      ? 'LinkedIn was busy, so this comment was not posted. Press Try posting again in a minute.'
+      : 'LinkedIn did not accept this comment. Nothing was posted.')
+  }
 
   const { error } = await db.from('post_comments')
     .update({ status: 'published', external_id: result.urn ? result.urn.slice(0, 300) : null }).eq('id', comment.id)

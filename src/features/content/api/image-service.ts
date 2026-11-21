@@ -1,4 +1,3 @@
-import { FunctionsHttpError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 
 /** HPD-60 / HPD-109: images live in a private bucket, in a folder only their owner can use. */
@@ -253,54 +252,4 @@ export async function previewUrls(paths: string[]): Promise<Record<string, strin
   const out: Record<string, string> = {}
   for (const d of data ?? []) if (d.path && d.signedUrl) out[d.path] = d.signedUrl
   return out
-}
-
-// ---------- Generate with AI (HPD-58) ----------
-
-export const IMAGE_STYLES = [
-  { id: 'photo', label: 'Photo' },
-  { id: 'illustration', label: 'Illustration' },
-  { id: 'minimal', label: 'Minimal' },
-  { id: '3d', label: '3D' },
-] as const
-export const IMAGE_SHAPES = [
-  { id: 'landscape', label: 'Wide (best for LinkedIn)' },
-  { id: 'square', label: 'Square' },
-  { id: 'portrait', label: 'Tall' },
-] as const
-export type ImageStyle = (typeof IMAGE_STYLES)[number]['id']
-export type ImageShape = (typeof IMAGE_SHAPES)[number]['id']
-
-export class GenerateError extends Error {
-  readonly detail: string
-  constructor(detail: string) {
-    super(detail)
-    this.detail = detail
-  }
-}
-
-/** A starting description from the post: its first meaningful lines, without hashtags. */
-export function describeFromPost(text: string): string {
-  const lines = text.split('\n').map((l) => l.replace(/#\w+/g, '').trim()).filter((l) => l.length > 3)
-  return lines.slice(0, 3).join(' ').slice(0, 400)
-}
-
-/** Creates an image with AI; it is saved to the library. Takes 10 to 60 seconds. */
-export async function generateImage(input: { description: string; style: ImageStyle; shape: ImageShape }): Promise<LibraryImage> {
-  if (offline()) throw new GenerateError(IMAGE_ERROR_TEXT.offline)
-  const { data, error } = await supabase.functions.invoke<{ image: LibraryImage }>('generate-image', { body: input })
-  if (error) {
-    let detail = ''
-    if (error instanceof FunctionsHttpError) {
-      try {
-        const payload = (await (error.context as Response).json()) as { error?: string; detail?: string }
-        detail = payload.detail ?? (payload.error === 'unauthorized' ? IMAGE_ERROR_TEXT.session : '')
-      } catch {
-        // not JSON
-      }
-    }
-    throw new GenerateError(detail || (offline() ? IMAGE_ERROR_TEXT.offline : 'The image could not be created just now. Please try again.'))
-  }
-  if (!data?.image) throw new GenerateError('The image could not be created just now. Please try again.')
-  return data.image
 }

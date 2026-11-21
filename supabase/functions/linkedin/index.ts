@@ -148,11 +148,11 @@ async function handle(req: Request): Promise<Response> {
         }),
       })
     } catch {
-      return fail(502, 'linkedin_failed', 'LinkedIn did not answer.')
+      return fail(502, 'linkedin_failed')
     }
     if (!tokenRes.ok) {
       console.error('LinkedIn token exchange failed', tokenRes.status, (await tokenRes.text()).slice(0, 300))
-      return fail(502, 'linkedin_failed', `LinkedIn refused the sign in (${tokenRes.status}).`)
+      return fail(502, 'linkedin_failed')
     }
     const token = await tokenRes.json() as { access_token?: string; expires_in?: number; scope?: string }
     if (!token.access_token) return fail(502, 'linkedin_failed')
@@ -248,7 +248,8 @@ async function handle(req: Request): Promise<Response> {
     }
     if (result.kind !== 'ok') {
       await release()
-      return fail(502, 'linkedin_failed', `LinkedIn did not accept the post (${result.kind === 'refused' ? result.status : 403}).`)
+      console.error('LinkedIn refused post', result.kind === 'refused' ? result.status : 403, result.detail)
+      return fail(502, 'linkedin_failed')
     }
     const urn = result.urn
     const externalUrl = postUrl(urn)
@@ -260,7 +261,11 @@ async function handle(req: Request): Promise<Response> {
       console.error('Marking post published failed', error.message)
       return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0, warning: 'saved_status_failed' })
     }
-    return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0 })
+    // Approved follow-up comments are posted by the background publisher from here on, so they
+    // still go out if the person closes the page or the laptop.
+    const { error: queueError } = await db.rpc('queue_post_comments', { p_post_id: postId })
+    if (queueError) console.error('Queueing comments failed (is migration 0019 run?)', queueError.message)
+    return reply(200, { published: true, url: externalUrl, image: Boolean(media), images: media?.length ?? 0, commentsQueued: !queueError })
   }
 
   // ---------- comment: post ONE approved follow-up comment under the person's published post ----------
@@ -314,12 +319,14 @@ async function handle(req: Request): Promise<Response> {
       return fail(401, 'linkedin_expired')
     }
     if (result.kind === 'forbidden') {
-      const reason = 'LinkedIn did not allow Hiba to post comments with your LinkedIn app\'s current permissions (403). Copy this comment and post it yourself.'
+      console.error('LinkedIn refused comment (403)', result.detail)
+      const reason = 'LinkedIn did not allow Hiba to post this comment. Copy it and post it yourself.'
       await markFailed(reason)
       return fail(403, 'comment_not_allowed', reason)
     }
     if (result.kind === 'refused') {
-      const reason = `LinkedIn did not accept this comment (${result.status}). Nothing was posted.`
+      console.error('LinkedIn refused comment', result.status, result.detail)
+      const reason = 'LinkedIn did not accept this comment. Nothing was posted.'
       await markFailed(reason)
       return fail(502, 'linkedin_failed', reason)
     }

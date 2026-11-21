@@ -5,10 +5,19 @@ interface AuthLikeError {
   message?: string
 }
 
-/** Turns Supabase auth errors into short, safe messages. Our own Errors pass through. */
+/** An error whose message was written for the person to read. Only these are shown as they are. */
+export class FriendlyError extends Error {}
+
+/** Turns auth errors into short, plain messages. Technical messages are never shown. */
 export function friendlyAuthError(err: unknown, fallback: string): string {
   const e = (err ?? {}) as AuthLikeError
-  if (!e.__isAuthError) return err instanceof Error && err.message ? err.message : fallback
+  if (!e.__isAuthError) {
+    if (err instanceof FriendlyError) return err.message
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return 'You are offline. Check your internet connection and try again.'
+    if (/failed to fetch|network|load failed/i.test(e.message ?? '')) return 'We could not connect. Check your internet connection and try again.'
+    console.error('Auth error', err)
+    return fallback
+  }
 
   switch (e.code) {
     case 'over_email_send_rate_limit':
@@ -27,6 +36,6 @@ export function friendlyAuthError(err: unknown, fallback: string): string {
       return 'We could not send the email right now. Please try again shortly.'
   }
   if (e.status === 429) return 'Too many attempts. Please wait a minute and try again.'
-  if (e.status && e.status >= 500) return 'The server had a problem. Please try again shortly.'
+  if (e.status && e.status >= 500) return 'This is not available right now. Please try again shortly.'
   return fallback
 }

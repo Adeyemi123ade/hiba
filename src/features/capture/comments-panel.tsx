@@ -2,17 +2,18 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowDown, ArrowUp, CheckCircle2, Copy, Loader2, MessagesSquare, Pause, Pencil, Play, RefreshCw, Square, Trash2,
+  ArrowDown, ArrowUp, CheckCircle2, Copy, Loader2, MessagesSquare, Pencil, RefreshCw, Send, Square, Trash2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Card } from '@/components/ui/card'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
+import { LeftToday } from '@/features/content/left-today'
+import { ALLOWANCES_KEY } from '@/features/content/use-allowances'
 import { ContentError, ERROR_TEXT, type ContentErrorCode, type PostStatus } from '@/features/content/api/content-service'
 import {
   COMMENTS_MAX, COMMENTS_MIN, COMMENT_MAX_CHARS, approveComments, draftingFunctionIsCurrent, deleteComment, fetchComments, generateComments,
-  randomGapMs, rewriteComment, saveOrder, updateComment, withdrawApproval, type PostComment,
+  queueComments, rewriteComment, saveOrder, updateComment, withdrawApproval, type PostComment,
 } from '@/features/content/api/comments-service'
-import { LINKEDIN_ERROR_TEXT, LinkedInError, postLinkedInComment } from '@/features/linkedin/linkedin-service'
 
 const primaryBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50'
@@ -23,7 +24,7 @@ const iconBtn =
 
 const codeOf = (e: unknown): ContentErrorCode => (e instanceof ContentError ? e.code : 'unknown')
 function message(code: ContentErrorCode) {
-  if (code === 'ai_failed') return 'We could not write the comments just now. Anything you already had is unchanged. Please try again.'
+  if (code === 'ai_failed') return 'We could not write your comments this time. Anything you already had is unchanged. Please try again.'
   if (code === 'not_found') return 'That comment or post has changed. Reload the page to see the latest.'
   return ERROR_TEXT[code].replace('Your idea is kept on this page.', 'Your comments are unchanged.')
 }
@@ -41,15 +42,22 @@ const STATUS_TONE: Record<PostComment['status'], string> = {
 
 const isLocked = (c: PostComment) => c.status === 'publishing' || c.status === 'published'
 
-type Runner = 'idle' | 'waiting' | 'posting' | 'paused' | 'stopped' | 'done'
+/** "in a few seconds", "in about 40 seconds" or "at 14:05". */
+function dueText(dueAt: string, now: number) {
+  const s = Math.ceil((new Date(dueAt).getTime() - now) / 1000)
+  if (s <= 5) return 'in a few seconds'
+  if (s < 90) return `in about ${s} seconds`
+  return `at ${new Date(dueAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+}
 
 /**
  * Follow-up comments (owner's master prompt, sections 10 and 11; owner decisions of 19 Nov 2026).
  * Hiba writes 5 to 10 comments of 20 to 50 words. The person edits, deletes, reorders, rewrites,
  * chooses and approves them. Once the post is live on LinkedIn, Hiba posts each approved comment
  * after a different random gap of 15 to 60 seconds. The person can pause, resume or stop at any time,
- * sees the next comment and its countdown, and sees what was posted and what failed. A failed comment
- * stops the sequence (never skipped silently) and can be retried. Posting runs while this page is open.
+ * sees the next comment and when it goes out, and sees what was posted and what failed. A failed
+ * comment stops the sequence (never skipped silently) and can be retried. Posting is done by Hiba's
+ * background publisher, so it carries on when this page, the browser or the laptop is closed.
  */
 export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, postUrl }: {
   ideaId: string
@@ -61,7 +69,11 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
 }) {
   const queryClient = useQueryClient()
   const key = ['comments', postId]
-  const query = useQuery({ queryKey: key, queryFn: () => fetchComments(postId), enabled, retry: 1 })
+  const query = useQuery({
+    queryKey: key, queryFn: () => fetchComments(postId), enabled, retry: 1,
+    // While Hiba is posting comments in the background, check every 10 seconds to show progress.
+    refetchInterval: (q) => ((q.state.data ?? []).some((c) => c.included && (c.status === 'publishing' || (c.status === 'approved' && c.due_at))) ? 10_000 : false),
+  })
   // Is the writing service on the server new enough to write comments? Asked once per visit.
   const fnCheck = useQuery({ queryKey: ['drafting-function-current'], queryFn: draftingFunctionIsCurrent, enabled, retry: false, staleTime: Infinity })
   const outdated = fnCheck.data === false
@@ -74,26 +86,22 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
   const [error, setError] = useState<ContentErrorCode | null>(null)
-  // The server's plain reason for the last failure, shown under the message.
-  const [errorDetail, setErrorDetail] = useState<string | null>(null)
   const [postError, setPostError] = useState<{ text: string; session?: boolean } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
-  const [runner, setRunner] = useState<Runner>('idle')
-  const [nextAt, setNextAt] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const lastGap = useRef<number | undefined>(undefined)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevStatus = useRef(postStatus)
-  const resumedOnLoad = useRef(false)
 
   const comments = query.data ?? []
-  // Comments with a due time belong to Hiba's background publisher (scheduled posts); this page leaves them alone.
-  const browserQueued = (c: PostComment) => c.included && c.status === 'approved' && !c.due_at
-  const queue = comments.filter(browserQueued)
-  const serverQueued = comments.filter((c) => c.included && c.status === 'approved' && c.due_at).length
   const published = postStatus === 'published'
   const anyLocked = comments.some(isLocked)
+  // Handed to the background publisher: posting now, or approved with a time to go out.
+  const queued = comments.filter((c) => c.included && (c.status === 'publishing' || (c.status === 'approved' && c.due_at)))
+  // Approved but not handed over yet (the post is not live yet, or it was approved before this change).
+  const waiting = comments.filter((c) => c.included && c.status === 'approved' && !c.due_at)
+  const sending = queued.length > 0
+  const nextComment = [...queued].sort((a, b) =>
+    (a.status === 'publishing' ? 0 : 1) - (b.status === 'publishing' ? 0 : 1) || (a.due_at ?? '').localeCompare(b.due_at ?? ''))[0]
 
   const refresh = useCallback(async () => {
     const fresh = await fetchComments(postId)
@@ -102,87 +110,25 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [postId, queryClient])
 
-  const schedule = useCallback(() => {
-    const gap = randomGapMs(lastGap.current)
-    lastGap.current = gap
-    const start = Date.now()
-    // Refresh the clock used by the countdown, so it never shows a stale number of seconds.
-    setNow(start)
-    setNextAt(start + gap)
-    setRunner('waiting')
-  }, [])
-
-  const clearTimer = () => {
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = null
-  }
-
-  // Countdown display.
+  // Keeps "in about 40 seconds" up to date while comments are going out.
   useEffect(() => {
-    if (runner !== 'waiting') return
-    const t = setInterval(() => setNow(Date.now()), 1000)
+    if (!sending) return
+    setNow(Date.now())
+    const t = setInterval(() => setNow(Date.now()), 5000)
     return () => clearInterval(t)
-  }, [runner])
+  }, [sending])
 
-  // Leaving with the sequence running: the browser asks first (posting needs this page open).
+  // The post just went live from this page. The server has already queued the approved comments.
   useEffect(() => {
-    if (runner !== 'waiting' && runner !== 'posting') return
-    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [runner])
-
-  useEffect(() => () => clearTimer(), [])
-
-  // The post was just published from this page and comments are approved: start automatically.
-  useEffect(() => {
-    if (prevStatus.current !== 'published' && postStatus === 'published' && queue.length && runner === 'idle') {
-      setNotice('Your post is live. Approved comments will now be posted under it, one by one.')
-      schedule()
+    if (prevStatus.current !== 'published' && postStatus === 'published') {
+      void refresh().then((fresh) => {
+        if (fresh.some((c) => c.included && c.status === 'approved' && c.due_at)) {
+          setNotice('Your post is live. Hiba is now posting your approved comments under it, one by one. You can close this page.')
+        }
+      }).catch(() => {})
     }
     prevStatus.current = postStatus
-  }, [postStatus, queue.length, runner, schedule])
-
-  // Opening the page later with approved comments still waiting: offer to resume, never start by surprise.
-  useEffect(() => {
-    if (resumedOnLoad.current || !query.isSuccess) return
-    resumedOnLoad.current = true
-    if (published && queue.length && runner === 'idle') setRunner('paused')
-  }, [query.isSuccess, published, queue.length, runner])
-
-  const postNext = useCallback(async () => {
-    const current = (queryClient.getQueryData<PostComment[]>(key) ?? []).filter(browserQueued)
-    const next = current[0]
-    if (!next) { setRunner('done'); setNextAt(null); return }
-    setRunner('posting')
-    setNextAt(null)
-    setPostError(null)
-    try {
-      await postLinkedInComment(next.id)
-      const fresh = await refresh()
-      if (fresh.some(browserQueued)) schedule()
-      else { setRunner('done'); setNotice('All approved comments are posted on LinkedIn.') }
-    } catch (e) {
-      // Never skip a failed comment: stop here and say exactly what happened.
-      const err = e instanceof LinkedInError ? e : null
-      setNotice(null)
-      setPostError({
-        text: err?.detail || (err ? LINKEDIN_ERROR_TEXT[err.code] : 'Something went wrong while posting the comment.'),
-        session: err?.code === 'session_expired',
-      })
-      setRunner('paused')
-      await refresh().catch(() => {})
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queryClient, refresh, schedule])
-
-  // When the countdown ends, post the next comment.
-  useEffect(() => {
-    clearTimer()
-    if (runner !== 'waiting' || nextAt === null) return
-    timer.current = setTimeout(() => { void postNext() }, Math.max(0, nextAt - Date.now()))
-    return clearTimer
-  }, [runner, nextAt, postNext])
+  }, [postStatus, refresh])
 
   useEffect(() => {
     setSlow(false)
@@ -204,8 +150,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     )
   }
 
-  const sequenceActive = runner === 'waiting' || runner === 'posting'
-  const busy = working !== null || editing !== null || sequenceActive
+  const busy = working !== null || editing !== null
 
   async function run(task: () => Promise<void>, id: 'all' | string, done?: string) {
     setWorking(id)
@@ -216,10 +161,10 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       if (done) setNotice(done)
     } catch (e) {
       setError(codeOf(e))
-      setErrorDetail(e instanceof ContentError ? e.detail : null)
       await queryClient.invalidateQueries({ queryKey: key })
     } finally {
       setWorking(null)
+      void queryClient.invalidateQueries({ queryKey: ALLOWANCES_KEY })
     }
   }
 
@@ -227,7 +172,6 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     setConfirmReplace(false)
     return run(async () => {
       queryClient.setQueryData(key, await generateComments(ideaId, postId, count))
-      setRunner('idle')
     }, 'all', 'Your comments are ready. Read each one, edit anything, untick any you do not want, then approve them.')
   }
 
@@ -272,46 +216,40 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
     }, id, 'Comment saved. If it was approved, approve it again to post it.')
   }
 
-  // Approve every ticked draft (and any failed ones, which retries them). If the post is already
-  // live, posting starts straight away (owner: "post automatically once I approve").
+  // Approve every ticked draft. If the post is already live, Hiba starts posting them straight away
+  // (owner: "post automatically once I approve"), from the server, so this page can be closed.
   const approve = () => run(async () => {
     const ids = comments.filter((c) => c.included && c.status === 'draft').map((c) => c.id)
     await approveComments(ids)
+    if (published) await queueComments(postId)
     await refresh()
     setPostError(null)
-    if (published) schedule()
   }, 'all', published
-    ? 'Approved. Hiba is posting them under your LinkedIn post, one by one. Keep this page open.'
+    ? 'Approved. Hiba posts them under your LinkedIn post one by one, 15 to 60 seconds apart. You can close this page or your laptop.'
     : postStatus === 'scheduled'
       ? 'Approved. Hiba posts these under your post automatically after it goes live. You do not need to keep this page open.'
-      : 'Approved. When you post this to LinkedIn from Hiba, these comments are posted under it automatically, one by one. Keep this page open after posting.')
+      : 'Approved. When you post this to LinkedIn from Hiba, these comments are posted under it automatically, one by one. You do not need to keep this page open.')
 
-  const withdraw = () => run(async () => {
-    clearTimer()
-    setRunner('idle')
-    setNextAt(null)
-    await withdrawApproval(queue.map((c) => c.id))
+  // Approved comments of a live post that were never handed to the publisher (e.g. approved earlier).
+  const sendWaiting = () => run(async () => {
+    await queueComments(postId)
     await refresh()
-  }, 'all', 'Approval taken back. Nothing more will be posted.')
+  }, 'all', 'Hiba is posting them now, one by one. You can close this page or your laptop.')
 
-  const pause = () => { clearTimer(); setNextAt(null); setRunner('paused'); setNotice('Paused. Nothing more is posted until you resume.') }
-  const resume = () => { setPostError(null); setNotice(null); schedule() }
+  // Stops everything not posted yet. A comment being posted at this very moment still finishes.
   const stop = () => {
     setConfirmStop(false)
-    clearTimer()
-    setNextAt(null)
     return run(async () => {
-      await withdrawApproval(queue.map((c) => c.id))
+      await withdrawApproval(comments.filter((c) => c.included && c.status === 'approved').map((c) => c.id))
       await refresh()
-      setRunner('stopped')
-    }, 'all', 'Stopped. The remaining comments were not posted and are back to draft.')
+    }, 'all', sending ? 'Stopped. The comments that were not posted yet are back to draft.' : 'Approval taken back. Nothing will be posted.')
   }
 
   const retry = (c: PostComment) => run(async () => {
     await approveComments([c.id])
+    if (published) await queueComments(postId)
     await refresh()
     setPostError(null)
-    if (published) schedule()
   }, c.id)
 
   async function copy(c: PostComment) {
@@ -327,8 +265,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
   const draftsToApprove = comments.filter((c) => c.included && c.status === 'draft').length
   const postedCount = comments.filter((c) => c.status === 'published').length
   const used = comments.filter((c) => c.included).length
-  const nextComment = queue[0]
-  const secondsLeft = nextAt ? Math.max(0, Math.ceil((nextAt - now) / 1000)) : 0
+  const stoppable = comments.some((c) => c.included && c.status === 'approved')
 
   const countPicker = (
     <label className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
@@ -348,19 +285,14 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
         Short comments (20 to 50 words) that Hiba posts under your own LinkedIn post, so the conversation goes deeper.
         Only comments you approve are posted, one by one, 15 to 60 seconds apart, after your post is live.
-        {postStatus === 'scheduled' ? ' For a scheduled post, Hiba posts them by itself, even if you are offline.' : ' Keep this page open while they post.'}
+        Hiba posts them by itself, even if you close this page or your laptop.
       </p>
-      {serverQueued > 0 && published && (
-        <p role="status" className="mt-2 rounded-[var(--radius-sm)] bg-sky-50 px-2 py-1.5 text-sm text-sky-900">
-          Hiba is posting {serverQueued === 1 ? 'the last approved comment' : `${serverQueued} approved comments`} under your post automatically, 15 to 60 seconds apart.
-        </p>
-      )}
 
       {!online && <p role="status" className="mt-3 text-sm text-amber-800">You are offline. Your comments are shown, but changes and posting need a connection.</p>}
       {outdated && (
         <div role="alert" className="mt-3 rounded-[var(--radius-sm)] bg-red-50 p-3 text-sm text-red-800">
-          <p className="font-semibold">Hiba cannot write comments yet: its writing service on the server is out of date.</p>
-          <p className="mt-1">To fix it, redeploy the <span className="font-mono">generate-drafts</span> function in Supabase (Verify JWT on), then reload this page. Comments you already have are still shown below and can still be approved and posted.</p>
+          <p className="font-semibold">Writing new comments is not available right now.</p>
+          <p className="mt-1">Please try again later. Comments you already have are shown below and can still be approved and posted.</p>
         </div>
       )}
 
@@ -380,6 +312,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {countPicker}
           <button type="button" className={primaryBtn} onClick={writeAll} disabled={!online || busy || outdated}>Write follow-up comments</button>
+          <LeftToday action="comments" className="basis-full" />
         </div>
       )}
 
@@ -390,45 +323,46 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
         </p>
       )}
 
-      {/* Posting sequence status and controls */}
-      {comments.length > 0 && (sequenceActive || runner === 'paused' || queue.length > 0 || postedCount > 0) && (
+      {/* Posting progress and controls. The posting itself happens on the server. */}
+      {comments.length > 0 && (sending || waiting.length > 0 || postedCount > 0) && (
         <div className="mt-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-light-green)] p-3 text-sm" aria-live="polite">
           <p className="font-semibold text-[var(--color-text-primary)]">
-            {postedCount} posted · {queue.length} approved and waiting
+            {postedCount} posted · {queued.length + waiting.length} approved and waiting
           </p>
-          {runner === 'waiting' && nextComment && (
-            <p className="mt-1 text-[var(--color-text-primary)]">Comment {nextComment.position} will be posted in {secondsLeft} seconds.</p>
-          )}
-          {runner === 'posting' && (
-            <p className="mt-1 flex items-center gap-2 text-[var(--color-text-primary)]"><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Posting a comment to LinkedIn...</p>
-          )}
-          {runner === 'paused' && queue.length > 0 && (
-            <p className="mt-1 text-[var(--color-text-primary)]">
-              {published ? 'Paused. The approved comments are not posted until you resume.' : 'Waiting for your post to go live on LinkedIn.'}
+          {sending && nextComment && (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-[var(--color-text-primary)]">
+              {nextComment.status === 'publishing'
+                ? <><Loader2 size={14} className="animate-spin" aria-hidden="true" /> Posting comment {nextComment.position} now.</>
+                : <>Comment {nextComment.position} goes out {dueText(nextComment.due_at!, now)}.</>}
+              {' '}Hiba does this by itself, so you can close this page or your laptop.
             </p>
           )}
-          {!published && queue.length > 0 && runner !== 'paused' && (
-            <p className="mt-1 text-[var(--color-text-primary)]">These are posted automatically after you post this to LinkedIn from Hiba.</p>
+          {!published && waiting.length > 0 && (
+            <p className="mt-1 text-[var(--color-text-primary)]">These are posted automatically after your post goes live on LinkedIn.</p>
           )}
-          {(runner === 'done' || (postedCount > 0 && !sequenceActive)) && postUrl && (
+          {published && waiting.length > 0 && !sending && (
+            <p className="mt-1 text-[var(--color-text-primary)]">These approved comments are not being posted yet.</p>
+          )}
+          {postedCount > 0 && postUrl && (
             <p className="mt-1"><a href={postUrl} target="_blank" rel="noopener noreferrer" className="font-semibold underline">See your post and comments on LinkedIn</a></p>
           )}
           <div className="mt-2 flex flex-wrap gap-2">
-            {sequenceActive && <button type="button" className={outlineBtn} onClick={pause} disabled={runner === 'posting'}><Pause size={14} aria-hidden="true" /> Pause</button>}
-            {runner === 'paused' && published && queue.length > 0 && (
-              <button type="button" className={outlineBtn} onClick={resume} disabled={!online}><Play size={14} aria-hidden="true" /> Resume posting</button>
+            {published && waiting.length > 0 && (
+              <button type="button" className={primaryBtn} onClick={sendWaiting} disabled={!online || busy}>
+                <Send size={14} aria-hidden="true" /> Post {waiting.length} approved comment{waiting.length === 1 ? '' : 's'}
+              </button>
             )}
-            {queue.length > 0 && (confirmStop ? (
+            {stoppable && (confirmStop ? (
               <span className="flex flex-wrap items-center gap-2">
-                {sequenceActive || runner === 'paused' ? 'Stop and keep the rest as drafts?' : 'Take back approval? Nothing will be posted.'}
-                <button type="button" className={outlineBtn} onClick={() => { setConfirmStop(false); void (sequenceActive || runner === 'paused' ? stop() : withdraw()) }} disabled={runner === 'posting'}>
-                  {sequenceActive || runner === 'paused' ? 'Yes, stop' : 'Yes, take it back'}
+                {sending ? 'Stop and keep the rest as drafts?' : 'Take back approval? Nothing will be posted.'}
+                <button type="button" className={outlineBtn} onClick={() => void stop()} disabled={working !== null}>
+                  {sending ? 'Yes, stop' : 'Yes, take it back'}
                 </button>
                 <button type="button" className="font-semibold underline" onClick={() => setConfirmStop(false)}>Keep going</button>
               </span>
             ) : (
-              <button type="button" className={outlineBtn} onClick={() => setConfirmStop(true)} disabled={runner === 'posting' || working !== null}>
-                <Square size={14} aria-hidden="true" /> {sequenceActive || runner === 'paused' ? 'Stop' : 'Take back approval'}
+              <button type="button" className={outlineBtn} onClick={() => setConfirmStop(true)} disabled={working !== null}>
+                <Square size={14} aria-hidden="true" /> {sending ? 'Stop posting the rest' : 'Take back approval'}
               </button>
             ))}
           </div>
@@ -542,6 +476,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
                 <button type="button" className={outlineBtn} onClick={() => setConfirmReplace(true)} disabled={!online || busy || outdated}>
                   <RefreshCw size={14} aria-hidden="true" /> Write all again
                 </button>
+                <LeftToday action="comments" className="basis-full" />
               </>
             ))}
           </div>
@@ -552,7 +487,6 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
       {error && (
         <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-sm text-red-700">
           {message(error)}
-          {errorDetail && <span className="basis-full text-xs">Reason: {errorDetail}</span>}
           {error === 'session_expired' && <SignInAgainButton />}
         </div>
       )}

@@ -20,6 +20,3 @@ verify_jwt = true
 # It refuses every request that does not carry the PUBLISHER_SECRET value.
 [functions.publisher]
 verify_jwt = false
-
-[functions.generate-image]
-verify_jwt = true

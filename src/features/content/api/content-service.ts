@@ -93,17 +93,56 @@ const POST_COLUMNS =
 /** Plain-language reasons the UI can show. Each maps to one message on screen. */
 export type ContentErrorCode =
   | 'offline' | 'session_expired' | 'not_found' | 'rate_limited' | 'not_configured' | 'ai_failed' | 'unknown'
-  | 'nothing_to_change' | 'needs_clarification' | 'image_delete_failed' | 'outdated'
+  | 'nothing_to_change' | 'needs_clarification' | 'image_delete_failed' | 'outdated' | 'daily_limit' | 'ai_busy'
+
+/** The actions that have a daily limit (migration 0019). */
+export type LimitedAction = 'draft' | 'rewrite' | 'angles' | 'comments' | 'comment_rewrite' | 'voice'
 
 export class ContentError extends Error {
   readonly code: ContentErrorCode
-  /** Extra text for the person, e.g. the AI's clarifying question. */
+  /** Only ever the AI's clarifying question. Technical reasons are never shown to the person. */
   readonly detail: string | null
-  constructor(code: ContentErrorCode, detail: string | null = null) {
+  /** For daily_limit: which action, and when the next one becomes available. */
+  readonly limit: { action: LimitedAction | null; nextAt: string | null } | null
+  constructor(code: ContentErrorCode, detail: string | null = null, limit: ContentError['limit'] = null) {
     super(code)
     this.code = code
     this.detail = detail
+    this.limit = limit
   }
+}
+
+/** The last daily-limit answer, so every screen's message can say when more is available. */
+let lastLimit: ContentError['limit'] = null
+export const rememberLimit = (limit: ContentError['limit']) => { lastLimit = limit }
+
+const LIMIT_WHAT: Record<LimitedAction, string> = {
+  draft: 'new drafts',
+  rewrite: 'rewrites',
+  angles: 'new angles',
+  comments: 'comment sets',
+  comment_rewrite: 'comment rewrites',
+  voice: 'voice recordings',
+}
+
+/** When the next one is available, in the person's own time: "at 14:05" or "tomorrow at 09:10". */
+export function whenAvailable(nextAt: string | null | undefined): string {
+  const when = nextAt ? new Date(nextAt) : null
+  if (!when || Number.isNaN(when.getTime())) return 'tomorrow'
+  const time = when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return when.toDateString() === new Date().toDateString() ? `at ${time}` : `tomorrow at ${time}`
+}
+
+/** "You have used all of today's new drafts. You can do more at 14:05. Everything you have is saved." */
+export function limitMessage(limit: ContentError['limit']): string {
+  const what = limit?.action ? LIMIT_WHAT[limit.action] : 'requests for this'
+  return `You have used all of today's ${what}. You can do more ${whenAvailable(limit?.nextAt)}. Everything you have is saved.`
+}
+
+/** The message for any drafting error: the daily limit one names the time it frees up. */
+export function errorMessage(e: ContentError | ContentErrorCode): string {
+  if (typeof e !== 'string' && e.code === 'daily_limit') return limitMessage(e.limit)
+  return ERROR_TEXT[typeof e === 'string' ? e : e.code]
 }
 
 function toContentError(error: { code?: string; status?: number; message?: string } | null): ContentError {
@@ -135,31 +174,36 @@ export async function saveIdea(body: string, source: 'typed' | 'voice'): Promise
 export const GUIDANCE_MAX = 300
 
 /** Calls the drafting function and turns its errors into plain-language codes. */
-export async function invokeDrafting<T>(body: Record<string, string>): Promise<T> {
+export async function invokeDrafting<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke<T>('generate-drafts', { body })
   if (error) {
     if (error instanceof FunctionsHttpError) {
       const res = error.context as Response
       let code = ''
       let question = ''
-      let detail = ''
+      let limit: ContentError['limit'] = null
       try {
-        const payload = (await res.json()) as { error?: string; question?: string; detail?: string }
+        const payload = (await res.json()) as { error?: string; question?: string; operation?: LimitedAction; nextAt?: string }
         code = payload.error ?? ''
-        detail = typeof payload.detail === 'string' ? payload.detail.slice(0, 300) : ''
         question = typeof payload.question === 'string' ? payload.question.slice(0, 300) : ''
+        if (code === 'daily_limit') limit = { action: payload.operation ?? null, nextAt: payload.nextAt ?? null }
       } catch {
         // Body was not JSON; fall through to the status code.
       }
       if (res.status === 401 || code === 'unauthorized') throw new ContentError('session_expired')
       if (code === 'needs_clarification' && question) throw new ContentError('needs_clarification', question)
+      if (code === 'daily_limit') { lastLimit = limit; throw new ContentError('daily_limit', null, limit) }
       if (code === 'rate_limited') throw new ContentError('rate_limited')
+      if (code === 'ai_busy') throw new ContentError('ai_busy')
       if (code === 'not_configured') throw new ContentError('not_configured')
-      if (code === 'not_found') throw new ContentError('not_found', detail || null)
+      if (code === 'not_found') throw new ContentError('not_found')
       if (code === 'nothing_to_change') throw new ContentError('nothing_to_change')
-      throw new ContentError('ai_failed', detail || null)
+      // For the developer console only; the person sees a plain sentence.
+      console.error('Drafting service error', res.status, code)
+      throw new ContentError('ai_failed')
     }
-    // Function not deployed yet, network down, or blocked: treat by connectivity.
+    // Network down, blocked, or the service not reachable.
+    console.error('Drafting service not reachable', error)
     if (typeof navigator !== 'undefined' && !navigator.onLine) throw new ContentError('offline')
     throw new ContentError('not_configured')
   }
@@ -174,11 +218,14 @@ export async function invokeDrafting<T>(body: Record<string, string>): Promise<T
  */
 export async function generateDrafts(
   ideaId: string,
-  options?: { platform: Platform; guidance?: string } | { angleId: string },
+  options?: { platform: Platform; guidance?: string } | { angleId: string } | { platforms: Platform[] },
 ): Promise<Post[]> {
-  const body: Record<string, string> = { ideaId }
+  const body: Record<string, unknown> = { ideaId }
   if (options && 'angleId' in options) {
     body.angleId = options.angleId
+  } else if (options && 'platforms' in options) {
+    // New drafts (or adding a platform): only the platforms the person ticked.
+    body.platforms = PLATFORMS.map((p) => p.id).filter((id) => options.platforms.includes(id))
   } else if (options) {
     body.platform = options.platform
     const guidance = options.guidance ? cleanIdea(options.guidance).slice(0, GUIDANCE_MAX) : ''
@@ -226,14 +273,17 @@ export const ERROR_TEXT: Record<ContentErrorCode, string> = {
   offline: 'You are offline. Your idea is kept on this page. Reconnect, then try again.',
   session_expired: 'Your session expired. Your idea is kept on this device. Sign in again to continue.',
   not_found: 'We could not find that idea. It may have been removed.',
-  rate_limited: 'You have made a lot of drafts this hour. Please wait a little, then try again.',
-  not_configured: 'Drafting is not switched on yet. Your idea is saved. Try again once it is set up.',
-  ai_failed: 'We could not write your posts just now. Your idea is saved. Please try again.',
+  rate_limited: 'You have made a lot of requests in the last hour. Please wait a little, then try again. Your idea is saved.',
+  not_configured: 'Writing is not available right now. Your idea is saved. Please try again later.',
+  ai_failed: 'We could not write your posts this time. Your idea is saved. Please try again.',
+  ai_busy: 'Hiba is very busy right now. Your idea is saved. Please try again in a minute.',
+  // Names what ran out and when the next one frees up (from the last daily-limit answer).
+  get daily_limit() { return limitMessage(lastLimit) },
   unknown: 'Something went wrong. Your idea is kept on this page. Please try again.',
   needs_clarification: 'Before I write, I need to understand your main point a little better. Add a sentence to your idea, then try again.',
   nothing_to_change: 'Every post for this idea is already approved, so there is nothing left to rewrite.',
   image_delete_failed: 'We could not delete the image, so nothing was deleted. Please try again.',
-  outdated: 'Hiba\'s writing service on the server is out of date, so nothing was changed. To fix it, redeploy the generate-drafts function in Supabase (Verify JWT on), then try again.',
+  outdated: 'This part of Hiba is being updated, so nothing was changed. Please try again later.',
 }
 
 export interface PostVersion {

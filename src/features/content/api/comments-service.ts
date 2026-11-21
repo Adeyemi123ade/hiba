@@ -12,7 +12,7 @@ export interface PostComment {
   status: 'draft' | 'approved' | 'publishing' | 'published' | 'failed'
   failure_reason?: string | null
   published_at?: string | null
-  /** Set by Hiba's background publisher: when this comment goes out automatically (scheduled posts). */
+  /** When Hiba's background publisher posts this comment (set once the post is live). */
   due_at?: string | null
   updated_at?: string
 }
@@ -130,10 +130,12 @@ export async function withdrawApproval(ids: string[]): Promise<void> {
   if (error) throw dbError(error)
 }
 
-/** The owner's rule: a different random gap of 15 to 60 seconds before each comment. */
-export function randomGapMs(previous?: number): number {
-  let gap = 15_000 + Math.floor(Math.random() * 45_001)
-  // Never the same whole number of seconds twice in a row.
-  if (previous !== undefined && Math.round(gap / 1000) === Math.round(previous / 1000)) gap = gap >= 59_000 ? gap - 2_000 : gap + 2_000
-  return gap
+/**
+ * Hands the approved comments of a live post to Hiba's background publisher, 15 to 60 seconds apart.
+ * They are then posted by the server, even if this page, the browser or the laptop is closed.
+ */
+export async function queueComments(postId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('queue_post_comments', { p_post_id: postId })
+  if (error) throw dbError(error)
+  return Number(data) || 0
 }

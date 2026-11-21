@@ -423,7 +423,6 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
       {error && (
         <div role="alert" className="mt-2 text-sm text-[var(--color-error)]">
           <p>{LINKEDIN_ERROR_TEXT[error.code]}</p>
-          {error.detail && <p className="text-xs">{error.detail}</p>}
         </div>
       )}
     </div>

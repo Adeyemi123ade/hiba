@@ -89,7 +89,6 @@ export function LinkedInCallbackPage() {
       {state === 'error' && error && (
         <Card role="alert" className="flex flex-col items-start gap-3">
           <p className="text-[var(--color-error)]">{LINKEDIN_ERROR_TEXT[error.code]}</p>
-          {error.detail && <p className="text-xs text-[var(--color-text-secondary)]">{error.detail}</p>}
           <div className="flex flex-wrap gap-2">
             <Link to="/dashboard/settings" className="rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-4 py-2 text-sm font-semibold text-white">
               Go to connected accounts
