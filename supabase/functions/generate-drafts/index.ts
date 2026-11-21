@@ -1216,8 +1216,9 @@ async function handle(req: Request, run: Run): Promise<Response> {
 
   const cols = 'id, idea_id, platform, title, body, status, scheduled_for, failure_reason, external_url, image_path, image_alt, updated_at'
   // deno-lint-ignore no-explicit-any
-  let { data: posts, error: postsError }: { data: any[] | null; error: unknown } = await db.from('posts').select(`${cols}, images`).eq('idea_id', ideaId)
-  // Before migration 0016 there is no image list yet: read the single image only.
+  let { data: posts, error: postsError }: { data: any[] | null; error: unknown } = await db.from('posts').select(`${cols}, images, attachment`).eq('idea_id', ideaId)
+  // Before migration 0020 there is no attachment; before 0016 no image list either.
+  if (postsError) ({ data: posts, error: postsError } = await db.from('posts').select(`${cols}, images`).eq('idea_id', ideaId))
   if (postsError) ({ data: posts, error: postsError } = await db.from('posts').select(cols).eq('idea_id', ideaId))
   if (postsError) return fail(500, 'server_error')
   return reply(200, { posts })

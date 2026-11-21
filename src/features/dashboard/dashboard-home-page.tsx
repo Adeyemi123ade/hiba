@@ -11,7 +11,7 @@ import {
 } from '@/features/content/api/content-service'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
-import { SAMPLE_GROWTH } from '@/features/dashboard/sample-data'
+import { ActivityCard } from '@/features/dashboard/activity-card'
 
 function greeting(date = new Date()) {
   const h = date.getHours()
@@ -208,23 +208,7 @@ export function DashboardHomePage() {
             )}
           </Card>
 
-          <Card>
-            <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-[var(--color-text-primary)]">
-              How you are growing
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">Sample</span>
-            </h2>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {SAMPLE_GROWTH.map((s) => (
-                <div key={s.label} className="rounded-[var(--radius-md)] bg-[var(--color-bg-soft-green)] p-3">
-                  <b className="block text-xl text-[var(--color-ink)]">{s.value}</b>
-                  <span className="text-sm text-[var(--color-text-secondary)]">{s.label}</span>
-                </div>
-              ))}
-            </div>
-            <p className="mt-3 text-xs text-[var(--color-text-secondary)]">
-              These are example numbers. Your real numbers appear after your first published post.
-            </p>
-          </Card>
+          <ActivityCard userId={userId} />
 
           {isEmpty && (
             <Card>

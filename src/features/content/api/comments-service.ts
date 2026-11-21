@@ -14,6 +14,8 @@ export interface PostComment {
   published_at?: string | null
   /** When Hiba's background publisher posts this comment (set once the post is live). */
   due_at?: string | null
+  /** Seconds to wait after the post (first comment) or the previous comment. Empty: random 15 to 60. */
+  gap_seconds?: number | null
   updated_at?: string
 }
 
@@ -41,7 +43,7 @@ function dbError(error: { code?: string; message?: string } | null): ContentErro
 
 export async function fetchComments(postId: string): Promise<PostComment[]> {
   const { data, error } = await supabase
-    .from('post_comments').select('id, post_id, position, body, included, status, failure_reason, published_at, due_at, updated_at')
+    .from('post_comments').select('id, post_id, position, body, included, status, failure_reason, published_at, due_at, gap_seconds, updated_at')
     .eq('post_id', postId).order('position', { ascending: true })
   if (error) throw dbError(error)
   return byPosition((data ?? []) as PostComment[])
@@ -95,7 +97,22 @@ export async function rewriteComment(ideaId: string, commentId: string): Promise
   return sent[0]?.post_id ? savedOr(sent[0].post_id, sent) : byPosition(sent)
 }
 
-export async function updateComment(id: string, change: Partial<Pick<PostComment, 'body' | 'included' | 'status'>>): Promise<void> {
+/** The gaps a person can choose before a comment. `null` is Hiba's default: a random 15 to 60 seconds. */
+export const GAP_CHOICES: { value: number | null; label: string }[] = [
+  { value: null, label: 'Random, 15 to 60 seconds' },
+  { value: 15, label: '15 seconds' },
+  { value: 30, label: '30 seconds' },
+  { value: 45, label: '45 seconds' },
+  { value: 60, label: '1 minute' },
+  { value: 120, label: '2 minutes' },
+  { value: 300, label: '5 minutes' },
+  { value: 600, label: '10 minutes' },
+  { value: 900, label: '15 minutes' },
+  { value: 1800, label: '30 minutes' },
+  { value: 3600, label: '1 hour' },
+]
+
+export async function updateComment(id: string, change: Partial<Pick<PostComment, 'body' | 'included' | 'status' | 'gap_seconds'>>): Promise<void> {
   const { data, error } = await supabase.from('post_comments').update(change).eq('id', id).select('id')
   if (error) throw dbError(error)
   if (!data?.length) throw new ContentError('not_found')

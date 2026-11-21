@@ -22,6 +22,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import {
   createComment, createPost, decryptToken, encryptionKey, postImages, postTooLong, postUrl, uploadImages,
 } from '../_shared/linkedin.ts'
+import { createMediaPost, postAttachment, uploadAttachment } from '../_shared/linkedin-media.ts'
 
 const MAX_ATTEMPTS = 3
 /** Waits before trying a post again: 5 minutes, then 15. */
@@ -34,6 +35,8 @@ const POSTS_PER_RUN = 40
 const POST_PARALLEL = 8
 const COMMENTS_PER_RUN = 100
 const COMMENT_PARALLEL = 15
+/** Stop starting new posts after this long, so a run always finishes well inside Supabase's limit. */
+const RUN_BUDGET_MS = 90_000
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
@@ -71,12 +74,19 @@ Deno.serve(async (req) => {
   })
 
   await failStaleClaims(db)
+  const startedAt = Date.now()
 
   const summary = { posts: 0, comments: 0 }
   const { data: posts, error: postsError } = await db.rpc('claim_due_posts', { max_posts: POSTS_PER_RUN })
   if (postsError) console.error('Claiming posts failed', postsError.message)
   // deno-lint-ignore no-explicit-any
   await inParallel((posts ?? []) as any[], POST_PARALLEL, async (post) => {
+    // Out of time for this run (big videos take a while): hand the post back for the next run.
+    if (Date.now() - startedAt > RUN_BUDGET_MS) {
+      await db.from('posts').update({ publish_lock: null, publish_attempts: Math.max(0, post.publish_attempts - 1) })
+        .eq('id', post.id).eq('status', 'scheduled')
+      return
+    }
     try {
       await publishPost(db, key, post)
       summary.posts++
@@ -154,9 +164,19 @@ async function publishPost(db: Db, key: CryptoKey, post: any) {
   const access = await accessFor(db, key, post.user_id)
   if ('reason' in access) return finish('failed', access.reason)
 
-  const images = postImages(post)
+  // A video or document goes out on its own (LinkedIn allows images, or one video, or one document).
+  const attachment = postAttachment(post)
+  const images = attachment ? [] : postImages(post)
   let media: Record<string, unknown>[] | null = null
-  if (images.length) {
+  let mediaUrn = ''
+  if (attachment) {
+    const sent = await uploadAttachment(db, access.token, access.memberId, attachment)
+    if ('error' in sent) {
+      if (sent.error === 'linkedin_expired') return finish('failed', 'LinkedIn refused your connection. Reconnect it in Settings, then schedule the post again.')
+      return finish(sent.status === 400 ? 'failed' : 'retry', `${sent.detail} Nothing was posted.`)
+    }
+    mediaUrn = sent.urn
+  } else if (images.length) {
     const uploaded = await uploadImages(db, access.token, access.memberId, images)
     if ('error' in uploaded) {
       if (uploaded.error === 'linkedin_expired') return finish('failed', 'LinkedIn refused your connection. Reconnect it in Settings, then schedule the post again.')
@@ -166,7 +186,9 @@ async function publishPost(db: Db, key: CryptoKey, post: any) {
     media = uploaded.media
   }
 
-  const result = await createPost(access.token, access.memberId, text, media)
+  const result = attachment
+    ? await createMediaPost(access.token, access.memberId, text, attachment, mediaUrn)
+    : await createPost(access.token, access.memberId, text, media)
   if (result.kind === 'no_answer') {
     const reason = 'LinkedIn did not answer, so Hiba cannot tell whether your post went out. Check your LinkedIn profile before trying again.'
     await db.from('posts').update({ status: 'failed', failure_reason: reason }).eq('id', post.id).eq('status', 'scheduled')

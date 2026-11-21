@@ -11,7 +11,7 @@ export interface LinkedInConnection {
 
 export type LinkedInErrorCode =
   | 'offline' | 'session_expired' | 'not_configured' | 'state_invalid' | 'linkedin_failed' | 'not_connected'
-  | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited' | 'too_long' | 'image_failed' | 'cancelled'
+  | 'linkedin_expired' | 'not_approved' | 'already_published' | 'rate_limited' | 'too_long' | 'image_failed' | 'media_failed' | 'cancelled'
   | 'post_not_published' | 'comment_not_allowed' | 'comment_unconfirmed' | 'unknown'
 
 export class LinkedInError extends Error {
@@ -39,6 +39,7 @@ export const LINKEDIN_ERROR_TEXT: Record<LinkedInErrorCode, string> = {
   rate_limited: 'You have posted a lot this hour. Please wait a little before posting again.',
   too_long: 'This post is over the LinkedIn limit of 200 words. Shorten it, then try again.',
   image_failed: 'Your image could not be sent to LinkedIn, so nothing was posted. Try again, or replace the image.',
+  media_failed: 'Your video or document could not be sent to LinkedIn, so nothing was posted. Try again, or replace the file.',
   cancelled: 'LinkedIn was not connected because the request was cancelled. You can try again any time.',
   post_not_published: 'Post this to LinkedIn from Hiba first. Approved comments are posted under it after that.',
   comment_not_allowed: 'LinkedIn did not allow Hiba to post this comment. Copy it and post it yourself.',
@@ -124,7 +125,7 @@ export function disconnectLinkedIn() {
 }
 
 export function publishToLinkedIn(postId: string) {
-  return call<{ published: true; url: string | null; warning?: string; image?: boolean; images?: number }>({ action: 'publish', postId })
+  return call<{ published: true; url: string | null; warning?: string; image?: boolean; images?: number; attachment?: boolean }>({ action: 'publish', postId })
 }
 
 /** Posts ONE approved follow-up comment under the person's published LinkedIn post. */
@@ -138,12 +139,12 @@ export async function postLinkedInComment(commentId: string): Promise<void> {
  * copy would publish the text without the image and could not post comments.
  * Returns true when up to date, false when out of date. Other problems (offline, session) throw.
  */
-export async function linkedInFunctionIsCurrent(imageCount = 0): Promise<boolean> {
+export async function linkedInFunctionIsCurrent(imageCount = 0, hasAttachment = false): Promise<boolean> {
   try {
     const info = await call<{ version?: number; features?: string[] }>({ action: 'info' })
     const f = info?.features ?? []
     // Several images need a copy that sends them all; an older one would send only the first.
-    return f.includes('images') && f.includes('comments') && (imageCount <= 1 || f.includes('multi-image'))
+    return f.includes('images') && f.includes('comments') && (imageCount <= 1 || f.includes('multi-image')) && (!hasAttachment || f.includes('media'))
   } catch (e) {
     if (e instanceof LinkedInError && e.code === 'unknown') return false
     throw e
