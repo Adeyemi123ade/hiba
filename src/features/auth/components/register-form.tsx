@@ -76,9 +76,9 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
   }
 
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        <div className="flex flex-col gap-2">
+    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1">
           <label htmlFor="first-name" className={authLabel}>First name</label>
           <input
             id="first-name"
@@ -95,7 +95,7 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
           />
           {errors.firstName && <p id="first-name-error" role="alert" className={authFieldError}>{errors.firstName}</p>}
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
           <label htmlFor="last-name" className={authLabel}>Surname</label>
           <input
             id="last-name"
@@ -114,7 +114,7 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1">
         <label htmlFor="email" className={authLabel}>Email address</label>
         <input
           id="email"
@@ -131,7 +131,7 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
         {errors.email && <p id="email-error" role="alert" className={authFieldError}>{errors.email}</p>}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1">
         <PasswordField id="password" label="Password" value={password}
           onChange={(v) => { setPassword(v); clear('password') }}
           autoComplete="new-password" describedBy={errors.password ? 'password-rules password-error' : 'password-rules'}
@@ -140,7 +140,7 @@ export function RegisterForm({ initialEmail = '', onRegistered }: RegisterFormPr
         {errors.password && <p id="password-error" role="alert" className={authFieldError}>{errors.password}</p>}
       </div>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1">
         <PasswordField id="confirm-password" label="Confirm password" value={confirm}
           onChange={(v) => { setConfirm(v); clear('confirm') }}
           autoComplete="new-password" describedBy={errors.confirm ? 'confirm-error' : undefined}
