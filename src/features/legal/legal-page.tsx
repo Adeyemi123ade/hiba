@@ -14,7 +14,7 @@ function LegalPage({ title, blurb, sections }: { title: string; blurb: string; s
           <Link to="/privacy" className="hover:underline">Privacy Policy</Link>
         </nav>
         <h1 className="text-3xl font-bold">{title}</h1>
-        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Effective {EFFECTIVE_DATE}</p>
+        <p className="mt-1 text-sm text-[var(--color-text-secondary)]">Last updated {EFFECTIVE_DATE}</p>
         {sections.map(([heading, paragraphs]) => (
           <section key={heading} className="mt-6">
             <h2 className="text-lg font-semibold">{heading}</h2>

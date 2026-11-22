@@ -8,13 +8,14 @@ export interface Profile {
   onboarding: Answers
   onboarding_completed: boolean
   terms_accepted_at: string | null
+  terms_version: string | null
 }
 
 // Row Level Security guarantees these only ever touch the signed-in user's own row.
 export async function fetchMyProfile(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, preferred_name, onboarding, onboarding_completed, terms_accepted_at')
+    .select('id, preferred_name, onboarding, onboarding_completed, terms_accepted_at, terms_version')
     .eq('id', userId)
     .maybeSingle()
   if (error) throw error

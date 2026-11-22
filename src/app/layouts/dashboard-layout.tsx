@@ -7,6 +7,7 @@ import { useOnline } from '@/features/onboarding/use-online'
 import { Banner } from '@/components/ui/banner'
 import { useSession } from '@/features/auth/use-session'
 import { cleanUpPostedImages } from '@/features/content/api/image-service'
+import { TermsUpdateNotice } from '@/features/legal/terms-update-notice'
 
 const NAV = [
   { to: '/dashboard/home', label: 'Home', icon: Home },
@@ -76,6 +77,7 @@ export function DashboardLayout() {
         </header>
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-24 pt-6 lg:pb-10">
           {!online && <Banner tone="warning">You are offline. Anything you type stays on this page until you reconnect.</Banner>}
+          <TermsUpdateNotice />
           <Outlet />
         </main>
       </div>
