@@ -10,7 +10,7 @@ export function TermsCheckbox({ id, checked, onChange, error, linkClassName }: T
   const link = linkClassName ? `${linkClassName} underline` : 'text-[var(--color-primary-dark)] underline'
   return (
     <div className="text-left">
-      <label htmlFor={id} className="flex items-start gap-3 text-base text-[var(--color-text-primary)]">
+      <label htmlFor={id} className="flex items-start gap-2.5 text-sm text-[var(--color-text-primary)]">
         <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
           aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined}
           className="mt-0.5 h-5 w-5 shrink-0 rounded accent-[var(--color-primary-dark)]" />

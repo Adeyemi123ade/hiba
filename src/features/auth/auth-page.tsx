@@ -40,11 +40,11 @@ export function AuthPage() {
   const showSocial = mode === 'register' || mode === 'login'
 
   return (
-    <div className="flex min-h-screen justify-center bg-white px-4 py-10 sm:items-center">
-     <div className="flex w-full max-w-md flex-col items-stretch gap-6">
+    <div className="flex min-h-dvh items-center justify-center bg-white px-4 py-4 sm:py-8">
+     <div className="flex w-full max-w-md flex-col items-stretch gap-3 sm:gap-4">
       <title>{HEADINGS[mode]} · Hiba</title>
       <meta name="robots" content="noindex" />
-      <h1 className="text-center text-3xl font-bold text-[var(--color-text-primary)] sm:text-4xl">{HEADINGS[mode]}</h1>
+      <h1 className="text-center text-2xl font-bold text-[var(--color-text-primary)] sm:text-3xl">{HEADINGS[mode]}</h1>
 
       {notice && (
         <p role="status" className="w-full rounded-lg bg-[var(--color-primary-soft)] px-3 py-2 text-sm text-[var(--color-primary-dark)]">
@@ -95,7 +95,7 @@ export function AuthPage() {
 
       {showSocial && (
         <>
-          <div className="flex w-full items-center gap-4 text-base text-[var(--color-text-secondary)]">
+          <div className="flex w-full items-center gap-4 text-sm text-[var(--color-text-secondary)]">
             <div className="h-px flex-1 bg-slate-200" />
             or
             <div className="h-px flex-1 bg-slate-200" />
@@ -104,7 +104,7 @@ export function AuthPage() {
         </>
       )}
 
-      <p className="text-center text-lg text-[var(--color-text-primary)]">
+      <p className="text-center text-base text-[var(--color-text-primary)]">
         {mode === 'register' && (
           <>Already have an account?{' '}
             <button type="button" onClick={() => go('login')} className={`${authLink} font-bold`}>Sign in</button></>
@@ -117,7 +117,7 @@ export function AuthPage() {
           <button type="button" onClick={() => go('login')} className={`${authLink} font-bold`}>Back to sign in</button>
         )}
       </p>
-      <p className="text-center text-base text-[var(--color-text-secondary)]">
+      <p className="text-center text-xs text-[var(--color-text-secondary)]">
         <a href="/terms" className={`${authLink} underline`}>Terms of Service</a>
         {' · '}
         <a href="/privacy" className={`${authLink} underline`}>Privacy Policy</a>

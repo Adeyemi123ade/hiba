@@ -40,7 +40,7 @@ export function LoginForm({ onSignedIn, onForgotPassword, onNeedsVerification }:
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
       <div className="flex flex-col gap-1">
         <label htmlFor="login-email" className={authLabel}>
           Email address

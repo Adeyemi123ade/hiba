@@ -15,7 +15,7 @@ interface PasswordFieldProps {
 export function PasswordField({ id, label, value, onChange, autoComplete, describedBy, invalid }: PasswordFieldProps) {
   const [show, setShow] = useState(false)
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-1">
       <label htmlFor={id} className={authLabel}>{label}</label>
       <div className="relative">
         <input

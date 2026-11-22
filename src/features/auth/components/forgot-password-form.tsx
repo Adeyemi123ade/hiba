@@ -32,7 +32,7 @@ export function ForgotPasswordForm({ initialEmail = '', onSent }: ForgotPassword
   }
 
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
+    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
       <p className="text-sm text-[var(--color-text-secondary)]">
         Enter your account email and we will send you a code to reset your password.
       </p>

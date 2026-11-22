@@ -57,7 +57,7 @@ export function OtpForm({ email, onVerified, onChangeEmail, onBackToSignIn, onFo
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
+    <form onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
       <p className="text-sm text-[var(--color-text-secondary)]">
         We sent a 6-digit code to <span className="font-medium text-[var(--color-text-primary)]">{email}</span>. It can take a minute to arrive.
       </p>

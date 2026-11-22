@@ -74,7 +74,7 @@ export function ResetPasswordForm({ email, onDone, onChangeEmail, onBackToSignIn
   }
 
   return (
-    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-5">
+    <form noValidate onSubmit={handleSubmit} className="flex w-full flex-col gap-3">
       <p className="text-sm text-[var(--color-text-secondary)]">
         If an account exists for <span className="font-medium text-[var(--color-text-primary)]">{email}</span>, we sent it a 6-digit code.
       </p>
