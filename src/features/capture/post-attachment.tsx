@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
-import { FileText, Film, Loader2, RefreshCw, Trash2 } from 'lucide-react'
-import { PostImages } from '@/features/capture/post-image'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { FileText, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { PostImages, type PostImagesHandle } from '@/features/capture/post-image'
+import type { AttachChoice } from '@/features/capture/attachment-choices'
 import type { PostImageItem } from '@/features/content/api/image-service'
 import {
   ACCEPT, MEDIA_ERROR_TEXT, MEDIA_TITLE_MAX, MediaError, attachMedia, kindLabel, mediaPreviewUrl, removeMedia, saveMediaTitle, sizeText,
@@ -10,11 +11,18 @@ import {
 const outlineBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50'
 
+/** What the paperclip menu (HPD-160) asks the post's attachments to do. */
+export interface PostMediaHandle {
+  choose: (choice: AttachChoice) => void
+}
+
 /**
  * Everything attached to a LinkedIn post: up to 9 images, OR one video, OR one document
  * (PDF, PowerPoint or Word; a PDF shows on LinkedIn as a swipeable carousel). That is LinkedIn's rule.
+ * Things are added from the paperclip under the post text (HPD-160); this shows and manages them.
  */
-export function PostMedia({ userId, postId, posted = false, images, attachment, editable, online, onImagesChange, onAttachmentChange }: {
+export function PostMedia({ ref, userId, postId, posted = false, images, attachment, editable, online, onImagesChange, onAttachmentChange }: {
+  ref?: Ref<PostMediaHandle>
   userId: string
   postId: string
   /** On LinkedIn already: Hiba may have removed its copy of the images. */
@@ -26,36 +34,48 @@ export function PostMedia({ userId, postId, posted = false, images, attachment, 
   onImagesChange: (images: PostImageItem[]) => void
   onAttachmentChange: (attachment: PostAttachment | null) => void
 }) {
-  const input = useRef<HTMLInputElement>(null)
-  const [picking, setPicking] = useState<AttachmentKind | null>(null)
-  const [busy, setBusy] = useState<'uploading' | 'removing' | null>(null)
+  const videoInput = useRef<HTMLInputElement>(null)
+  const documentInput = useRef<HTMLInputElement>(null)
+  const imagesRef = useRef<PostImagesHandle>(null)
+  const [uploading, setUploading] = useState<AttachmentKind | null>(null)
+  const [removing, setRemoving] = useState(false)
   const [error, setError] = useState<MediaErrorCode | null>(null)
+  const busy = uploading !== null || removing
 
-  function choose(kind: AttachmentKind) {
-    setPicking(kind)
+  // One file picker per kind, opened straight from the tap so phones allow it.
+  function open(kind: AttachmentKind) {
+    if (!editable || !online || busy) return
     setError(null)
-    // The input's accepted types change with the kind; open it on the next tick.
-    setTimeout(() => input.current?.click(), 0)
+    ;(kind === 'video' ? videoInput : documentInput).current?.click()
   }
 
-  async function picked(list: FileList | null) {
+  useImperativeHandle(ref, () => ({
+    choose: (choice) => {
+      if (choice === 'device') imagesRef.current?.fromDevice()
+      else if (choice === 'library') imagesRef.current?.fromLibrary()
+      else open(choice)
+    },
+  }))
+
+  async function picked(kind: AttachmentKind, list: FileList | null) {
     const file = list?.[0]
-    if (input.current) input.current.value = ''
-    if (!file || !picking) return
-    setBusy('uploading')
+    if (videoInput.current) videoInput.current.value = ''
+    if (documentInput.current) documentInput.current.value = ''
+    if (!file) return
+    setUploading(kind)
     setError(null)
     try {
-      onAttachmentChange(await attachMedia(userId, postId, file, picking, attachment))
+      onAttachmentChange(await attachMedia(userId, postId, file, kind, attachment))
     } catch (e) {
       setError(e instanceof MediaError ? e.code : 'upload')
     } finally {
-      setBusy(null)
+      setUploading(null)
     }
   }
 
   async function remove() {
     if (!attachment) return
-    setBusy('removing')
+    setRemoving(true)
     setError(null)
     try {
       await removeMedia(postId, attachment)
@@ -63,65 +83,57 @@ export function PostMedia({ userId, postId, posted = false, images, attachment, 
     } catch (e) {
       setError(e instanceof MediaError ? e.code : 'save')
     } finally {
-      setBusy(null)
+      setRemoving(false)
     }
   }
 
-  const fileInput = (
-    <input ref={input} type="file" accept={picking ? ACCEPT[picking] : undefined} className="sr-only" tabIndex={-1}
-      aria-label={picking === 'video' ? 'Choose a video' : 'Choose a document'} onChange={(e) => picked(e.target.files)} />
+  const inputs = (
+    <>
+      <input ref={videoInput} type="file" accept={ACCEPT.video} className="sr-only" tabIndex={-1}
+        aria-label="Choose a video" onChange={(e) => picked('video', e.target.files)} />
+      <input ref={documentInput} type="file" accept={ACCEPT.document} className="sr-only" tabIndex={-1}
+        aria-label="Choose a document" onChange={(e) => picked('document', e.target.files)} />
+    </>
+  )
+  const status = (
+    <>
+      {uploading && (
+        <p role="status" className="mt-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+          {uploading === 'video' ? 'Uploading the video...' : 'Uploading the document...'}
+        </p>
+      )}
+      {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{MEDIA_ERROR_TEXT[error]}</p>}
+    </>
   )
 
   if (attachment) {
     return (
       <div className="mt-4 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-3">
-        {fileInput}
-        <AttachmentCard postId={postId} attachment={attachment} editable={editable && online && busy === null}
+        {inputs}
+        <AttachmentCard postId={postId} attachment={attachment} editable={editable && online && !busy}
           onTitleSaved={onAttachmentChange} />
         {editable && (
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => choose(attachment.kind)}>
-              {busy === 'uploading' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}
-              {busy === 'uploading' ? 'Uploading...' : 'Replace'}
+            <button type="button" className={outlineBtn} disabled={busy || !online} onClick={() => open(attachment.kind)}>
+              {uploading ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}
+              {uploading ? 'Uploading...' : 'Replace'}
             </button>
-            <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={remove}>
-              <Trash2 size={16} aria-hidden="true" /> {busy === 'removing' ? 'Removing...' : 'Remove'}
+            <button type="button" className={outlineBtn} disabled={busy || !online} onClick={remove}>
+              <Trash2 size={16} aria-hidden="true" /> {removing ? 'Removing...' : 'Remove'}
             </button>
           </div>
         )}
-        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">
-          LinkedIn allows images, or one video, or one document on a post. Remove this to add images instead.
-        </p>
-        {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{MEDIA_ERROR_TEXT[error]}</p>}
+        {status}
       </div>
     )
   }
 
   return (
     <>
-      <PostImages userId={userId} postId={postId} posted={posted} images={images} editable={editable} online={online} onChange={onImagesChange} />
-      {editable && (
-        <div className="mt-2 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-3">
-          {fileInput}
-          <p className="text-sm font-semibold text-[var(--color-text-primary)]">Or attach a video or document</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" className={outlineBtn} disabled={busy !== null || !online || images.length > 0} onClick={() => choose('video')}>
-              {busy === 'uploading' && picking === 'video' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Film size={16} aria-hidden="true" />}
-              {busy === 'uploading' && picking === 'video' ? 'Uploading the video...' : 'Video'}
-            </button>
-            <button type="button" className={outlineBtn} disabled={busy !== null || !online || images.length > 0} onClick={() => choose('document')}>
-              {busy === 'uploading' && picking === 'document' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}
-              {busy === 'uploading' && picking === 'document' ? 'Uploading the document...' : 'Document or carousel (PDF)'}
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-            {images.length > 0
-              ? 'LinkedIn allows images, or one video, or one document on a post. Remove the images to attach a video or document.'
-              : 'One MP4 or MOV video, or one PDF, PowerPoint or Word document, up to 50 MB. A PDF shows on LinkedIn as a carousel people swipe through.'}
-          </p>
-          {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{MEDIA_ERROR_TEXT[error]}</p>}
-        </div>
-      )}
+      {inputs}
+      <PostImages ref={imagesRef} userId={userId} postId={postId} posted={posted} images={images} editable={editable} online={online} onChange={onImagesChange} />
+      {status}
     </>
   )
 }

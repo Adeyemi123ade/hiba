@@ -1,13 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, ImagePlus, Images, Loader2, RefreshCw, Trash2 } from 'lucide-react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { ArrowLeft, ArrowRight, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import {
   IMAGE_ALT_MAX, IMAGE_ERROR_TEXT, IMAGE_MAX_COUNT, ImageError, addImages,
   imagePreviewUrl, moveImage, removeImage, replaceImage, saveImageAlt, type ImageErrorCode, type PostImageItem,
 } from '@/features/content/api/image-service'
 import { ImagePickerDialog } from '@/features/images/image-components'
-import { libraryKey } from '@/features/images/use-library'
-import { addLocalImages } from '@/lib/local-images'
 
 const outlineBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50'
@@ -16,8 +13,18 @@ const iconBtn =
 
 const codeOf = (e: unknown): ImageErrorCode => (e instanceof ImageError ? e.code : 'upload')
 
-/** HPD-60: add up to 9 images to a LinkedIn post, describe, reorder, replace or remove each one. */
-export function PostImages({ userId, postId, posted = false, images, editable, online, onChange }: {
+/** What the paperclip menu (HPD-160) asks the image section to do. */
+export interface PostImagesHandle {
+  fromDevice: () => void
+  fromLibrary: () => void
+}
+
+/**
+ * HPD-60: up to 9 images on a LinkedIn post, each described, reordered, replaced or removed.
+ * Images are added from the paperclip menu (HPD-160). From device never saves to the library.
+ */
+export function PostImages({ ref, userId, postId, posted = false, images, editable, online, onChange }: {
+  ref?: Ref<PostImagesHandle>
   userId: string
   postId: string
   posted?: boolean
@@ -33,11 +40,14 @@ export function PostImages({ userId, postId, posted = false, images, editable, o
   const [error, setError] = useState<ImageErrorCode | null>(null)
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
   const [picking, setPicking] = useState(false)
-  // Choose from device does not save to the library unless the person asks (owner, 22 Nov 2026).
-  const [saveToLibrary, setSaveToLibrary] = useState(false)
-  const [libraryNote, setLibraryNote] = useState<string | null>(null)
-  const queryClient = useQueryClient()
   const room = IMAGE_MAX_COUNT - images.length
+  const canAdd = editable && online && busy === null && room > 0
+
+  // Called straight from the menu tap, so the phone lets the file picker open.
+  useImperativeHandle(ref, () => ({
+    fromDevice: () => { if (canAdd) { setError(null); addInput.current?.click() } },
+    fromLibrary: () => { if (canAdd) { setError(null); setPicking(true) } },
+  }), [canAdd])
 
   async function run(label: string, task: () => Promise<PostImageItem[]>) {
     setBusy(label)
@@ -62,20 +72,7 @@ export function PostImages({ userId, postId, posted = false, images, editable, o
       if (addInput.current) addInput.current.value = ''
       return
     }
-    setLibraryNote(null)
-    void run('adding', async () => {
-      const next = await addImages(userId, postId, images, files)
-      if (saveToLibrary) {
-        try {
-          await addLocalImages(userId, files)
-          void queryClient.invalidateQueries({ queryKey: libraryKey(userId) })
-          setLibraryNote('Also saved to your library.')
-        } catch {
-          setLibraryNote('Added to the post, but not saved to your library. This device may be out of space.')
-        }
-      }
-      return next
-    })
+    void run('adding', () => addImages(userId, postId, images, files))
   }
 
   function pickReplacement(list: FileList | null) {
@@ -85,23 +82,18 @@ export function PostImages({ userId, postId, posted = false, images, editable, o
     void run(`replacing-${index}`, () => replaceImage(userId, postId, images, index, file))
   }
 
+  const showBox = images.length > 0 || busy === 'adding' || error !== null
   return (
-    <div className="mt-4 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-3">
-      <p className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
-        Images
-        {images.length > 0 && (
-          <span className="font-normal text-[var(--color-text-secondary)]">{images.length} of {IMAGE_MAX_COUNT}</span>
-        )}
-        {!images.length && editable && (
-          <span className="rounded-full bg-[var(--color-primary-soft)] px-2 py-0.5 text-xs font-semibold text-[var(--color-primary-dark)]">Recommended</span>
-        )}
-      </p>
+    <div className={showBox ? 'mt-4 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-3' : undefined}>
+      {images.length > 0 && (
+        <p className="mb-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-[var(--color-text-primary)]">
+          Images <span className="font-normal text-[var(--color-text-secondary)]">{images.length} of {IMAGE_MAX_COUNT}</span>
+        </p>
+      )}
       <input ref={addInput} type="file" multiple accept="image/jpeg,image/png,image/gif" className="sr-only"
         aria-label="Choose images" tabIndex={-1} onChange={(e) => pickMany(e.target.files)} />
       <input ref={replaceInput} type="file" accept="image/jpeg,image/png,image/gif" className="sr-only"
         aria-label="Choose a replacement image" tabIndex={-1} onChange={(e) => pickReplacement(e.target.files)} />
-
-      {!images.length && !editable && <p className="text-sm text-[var(--color-text-secondary)]">No images on this post.</p>}
 
       {images.length > 0 && (
         <ul className="grid gap-3 sm:grid-cols-2">
@@ -128,31 +120,12 @@ export function PostImages({ userId, postId, posted = false, images, editable, o
         </ul>
       )}
 
-      {editable && room > 0 && (
-        <div className="mt-3 flex flex-col items-start gap-1">
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => addInput.current?.click()}>
-              {busy === 'adding' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ImagePlus size={16} aria-hidden="true" />}
-              {busy === 'adding' ? 'Uploading...' : 'Choose from device'}
-            </button>
-            <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => setPicking(true)}>
-              <Images size={16} aria-hidden="true" /> Choose from library
-            </button>
-          </div>
-          <label className="flex items-center gap-2 text-xs text-[var(--color-text-primary)]">
-            <input type="checkbox" checked={saveToLibrary} onChange={(e) => setSaveToLibrary(e.target.checked)}
-              className="h-4 w-4 accent-[var(--color-primary-dark)]" />
-            Also save images from my device to my library
-          </label>
-          <p className="text-xs text-[var(--color-text-secondary)]">
-            Optional, but posts with images usually get much more attention. Up to {IMAGE_MAX_COUNT} JPG, PNG or GIF images,
-            5 MB each, posted together with your text. The first image leads the post.
-          </p>
-        </div>
+      {busy === 'adding' && (
+        <p role="status" className="mt-2 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+          <Loader2 size={16} className="animate-spin" aria-hidden="true" /> Uploading...
+        </p>
       )}
-
       {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{IMAGE_ERROR_TEXT[error]}</p>}
-      {libraryNote && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{libraryNote}</p>}
       {images.length > 0 && editable && (
         <p className="mt-2 text-xs text-[var(--color-text-secondary)]">Removing an image from this post does not remove it from your library.</p>
       )}
