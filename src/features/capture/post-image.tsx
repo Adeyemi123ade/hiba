@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, ImagePlus, Images, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  IMAGE_ALT_MAX, IMAGE_ERROR_TEXT, IMAGE_MAX_COUNT, ImageError, addImages, attachLibraryImages,
+  IMAGE_ALT_MAX, IMAGE_ERROR_TEXT, IMAGE_MAX_COUNT, ImageError, addImages,
   imagePreviewUrl, moveImage, removeImage, replaceImage, saveImageAlt, type ImageErrorCode, type PostImageItem,
 } from '@/features/content/api/image-service'
 import { ImagePickerDialog } from '@/features/images/image-components'
+import { libraryKey } from '@/features/images/use-library'
+import { addLocalImages } from '@/lib/local-images'
 
 const outlineBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-3 py-1.5 text-sm font-semibold text-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50'
@@ -14,9 +17,10 @@ const iconBtn =
 const codeOf = (e: unknown): ImageErrorCode => (e instanceof ImageError ? e.code : 'upload')
 
 /** HPD-60: add up to 9 images to a LinkedIn post, describe, reorder, replace or remove each one. */
-export function PostImages({ userId, postId, images, editable, online, onChange }: {
+export function PostImages({ userId, postId, posted = false, images, editable, online, onChange }: {
   userId: string
   postId: string
+  posted?: boolean
   images: PostImageItem[]
   editable: boolean
   online: boolean
@@ -29,6 +33,10 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
   const [error, setError] = useState<ImageErrorCode | null>(null)
   const [confirmRemove, setConfirmRemove] = useState<number | null>(null)
   const [picking, setPicking] = useState(false)
+  // Choose from device does not save to the library unless the person asks (owner, 22 Nov 2026).
+  const [saveToLibrary, setSaveToLibrary] = useState(false)
+  const [libraryNote, setLibraryNote] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const room = IMAGE_MAX_COUNT - images.length
 
   async function run(label: string, task: () => Promise<PostImageItem[]>) {
@@ -54,7 +62,20 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
       if (addInput.current) addInput.current.value = ''
       return
     }
-    void run('adding', () => addImages(userId, postId, images, files))
+    setLibraryNote(null)
+    void run('adding', async () => {
+      const next = await addImages(userId, postId, images, files)
+      if (saveToLibrary) {
+        try {
+          await addLocalImages(userId, files)
+          void queryClient.invalidateQueries({ queryKey: libraryKey(userId) })
+          setLibraryNote('Also saved to your library.')
+        } catch {
+          setLibraryNote('Added to the post, but not saved to your library. This device may be out of space.')
+        }
+      }
+      return next
+    })
   }
 
   function pickReplacement(list: FileList | null) {
@@ -91,6 +112,7 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
               index={i}
               count={images.length}
               postId={postId}
+              posted={posted}
               editable={editable}
               disabled={busy !== null || !online}
               busy={busy}
@@ -111,12 +133,17 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
           <div className="flex flex-wrap gap-2">
             <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => addInput.current?.click()}>
               {busy === 'adding' ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ImagePlus size={16} aria-hidden="true" />}
-              {busy === 'adding' ? 'Uploading...' : 'Upload'}
+              {busy === 'adding' ? 'Uploading...' : 'Choose from device'}
             </button>
             <button type="button" className={outlineBtn} disabled={busy !== null || !online} onClick={() => setPicking(true)}>
-              <Images size={16} aria-hidden="true" /> Choose from Images
+              <Images size={16} aria-hidden="true" /> Choose from library
             </button>
           </div>
+          <label className="flex items-center gap-2 text-xs text-[var(--color-text-primary)]">
+            <input type="checkbox" checked={saveToLibrary} onChange={(e) => setSaveToLibrary(e.target.checked)}
+              className="h-4 w-4 accent-[var(--color-primary-dark)]" />
+            Also save images from my device to my library
+          </label>
           <p className="text-xs text-[var(--color-text-secondary)]">
             Optional, but posts with images usually get much more attention. Up to {IMAGE_MAX_COUNT} JPG, PNG or GIF images,
             5 MB each, posted together with your text. The first image leads the post.
@@ -125,25 +152,36 @@ export function PostImages({ userId, postId, images, editable, online, onChange 
       )}
 
       {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{IMAGE_ERROR_TEXT[error]}</p>}
+      {libraryNote && <p role="status" className="mt-2 text-xs text-[var(--color-text-secondary)]">{libraryNote}</p>}
       {images.length > 0 && editable && (
-        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">Removing an image from this post keeps it in your Images.</p>
+        <p className="mt-2 text-xs text-[var(--color-text-secondary)]">Removing an image from this post does not remove it from your library.</p>
       )}
       <ImagePickerDialog
+        userId={userId}
         open={picking}
         max={room}
-        exclude={images.map((i) => i.path)}
         onClose={() => setPicking(false)}
-        onPick={(picked) => run('adding', () => attachLibraryImages(postId, images, picked))}
+        onPick={async (files) => {
+          setError(null)
+          try {
+            onChange(await addImages(userId, postId, images, files))
+          } catch (e) {
+            // Shown in the picker and, after it closes, here.
+            setError(codeOf(e))
+            throw e
+          }
+        }}
       />
     </div>
   )
 }
 
-function ImageCard({ image, index, count, postId, editable, disabled, busy, confirming, onAskRemove, onCancelRemove, onRemove, onMove, onReplace, onSaveAlt }: {
+function ImageCard({ image, index, count, postId, posted, editable, disabled, busy, confirming, onAskRemove, onCancelRemove, onRemove, onMove, onReplace, onSaveAlt }: {
   image: PostImageItem
   index: number
   count: number
   postId: string
+  posted: boolean
   editable: boolean
   disabled: boolean
   busy: string | null
@@ -192,6 +230,10 @@ function ImageCard({ image, index, count, postId, editable, disabled, busy, conf
       <div className="relative flex h-40 w-full items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-bg-soft-green)]">
         {preview ? (
           <img src={preview} alt={altText || `Image ${n} attached to this post`} className="h-full w-full object-cover" />
+        ) : previewFailed && posted ? (
+          <span className="px-2 text-center text-xs text-[var(--color-text-secondary)]">
+            Posted to LinkedIn. Hiba no longer keeps a copy of this image.
+          </span>
         ) : previewFailed ? (
           <span className="px-2 text-center text-xs text-[var(--color-text-secondary)]">
             Preview not available.{' '}

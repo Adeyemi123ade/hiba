@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { CalendarDays, FileText, Home, Images, LogOut, Mic, Settings } from 'lucide-react'
 import { clsx } from 'clsx'
 import { signOutUser } from '@/features/auth/api/auth-service'
 import { useOnline } from '@/features/onboarding/use-online'
 import { Banner } from '@/components/ui/banner'
+import { useSession } from '@/features/auth/use-session'
+import { cleanUpPostedImages } from '@/features/content/api/image-service'
 
 const NAV = [
   { to: '/dashboard/home', label: 'Home', icon: Home },
@@ -28,6 +30,12 @@ export function DashboardLayout() {
   const online = useOnline()
   const navigate = useNavigate()
   const [signingOut, setSigningOut] = useState(false)
+  const userId = useSession().session?.user.id
+
+  // Removes Hiba's copies of images on posts already on LinkedIn (quietly, at most every few hours).
+  useEffect(() => {
+    if (userId) void cleanUpPostedImages(userId).catch(() => undefined)
+  }, [userId])
 
   async function signOut() {
     setSigningOut(true)

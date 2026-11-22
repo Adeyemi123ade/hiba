@@ -88,7 +88,6 @@ export async function addImages(userId: string, postId: string, current: PostIma
     for (const f of files) added.push(await upload(userId, f))
     const next = [...current, ...added.map((path) => ({ path, alt: null }))]
     await saveList(postId, next)
-    await recordInLibrary(userId, added.map((path, i) => ({ path, bytes: files[i].size })))
     return next
   } catch (e) {
     await removeFiles(added)
@@ -96,7 +95,24 @@ export async function addImages(userId: string, postId: string, current: PostIma
   }
 }
 
-/** Swaps one image for a new file, keeping its place. The old one stays in the Images library. */
+/**
+ * Deletes a post's copy of an image it no longer uses, unless another post or the old online
+ * library still uses it. Best effort: a leftover file only costs a little space.
+ */
+async function dropIfUnused(path: string, postId: string): Promise<void> {
+  try {
+    const [others, library] = await Promise.all([
+      supabase.from('posts').select('images, image_path').neq('id', postId).not('image_path', 'is', null).limit(5000),
+      supabase.from('images').select('path').eq('path', path).limit(1),
+    ])
+    if (others.error) return
+    if (!library.error && library.data?.length) return
+    if ((others.data ?? []).some((o) => imagesOf(o as { images: PostImageItem[] | null; image_path: string | null }).some((i) => i.path === path))) return
+    await supabase.storage.from(IMAGE_BUCKET).remove([path])
+  } catch { /* leave it */ }
+}
+
+/** Swaps one image for a new file, keeping its place. */
 export async function replaceImage(userId: string, postId: string, current: PostImageItem[], index: number, file: File): Promise<PostImageItem[]> {
   const problem = checkImage(file)
   if (problem) throw new ImageError(problem)
@@ -109,26 +125,16 @@ export async function replaceImage(userId: string, postId: string, current: Post
     await removeFiles([path])
     throw e
   }
-  await recordInLibrary(userId, [{ path, bytes: file.size }])
+  void dropIfUnused(current[index].path, postId)
   return next
 }
 
-/** Takes one image off the post. It stays in the Images library. */
+/** Takes one image off the post. */
 export async function removeImage(postId: string, current: PostImageItem[], index: number): Promise<PostImageItem[]> {
   if (offline()) throw new ImageError('offline')
   const next = current.filter((_, i) => i !== index)
   await saveList(postId, next)
-  return next
-}
-
-/** Adds library images to the end of the post's images (skipping ones already on it). */
-export async function attachLibraryImages(postId: string, current: PostImageItem[], picked: Pick<LibraryImage, 'path' | 'alt'>[]): Promise<PostImageItem[]> {
-  const fresh = picked.filter((p) => !current.some((c) => c.path === p.path))
-  if (!fresh.length) return current
-  if (current.length + fresh.length > IMAGE_MAX_COUNT) throw new ImageError('count')
-  if (offline()) throw new ImageError('offline')
-  const next = [...current, ...fresh.map((p) => ({ path: p.path, alt: p.alt ?? null }))]
-  await saveList(postId, next)
+  void dropIfUnused(current[index].path, postId)
   return next
 }
 
@@ -155,101 +161,56 @@ export async function imagePreviewUrl(path: string): Promise<string> {
   return data.signedUrl
 }
 
-// ---------- Images library (H07: HPD-59, 61, 62, 109) ----------
+// ---------- Images library: now on the device (src/lib/local-images.ts) ----------
 
-export interface LibraryImage {
-  id: string
-  path: string
-  source: 'upload' | 'generated'
-  prompt: string | null
-  alt: string | null
-  width: number | null
-  height: number | null
-  bytes: number | null
-  created_at: string
+/** Images in the old online library (migration 0018), to copy to this device once. Empty if none. */
+export async function onlineLibraryPaths(): Promise<string[]> {
+  const { data, error } = await supabase.from('images').select('path').order('created_at', { ascending: true }).limit(1000)
+  if (error) return []
+  return (data ?? []).map((r) => r.path as string)
 }
 
-/** A post that uses a library image. */
-export interface ImageUse {
-  postId: string
-  ideaId: string
-  status: string
-  platform: string
+/** Reads one of the person's uploaded images (for copying it to the device library). */
+export async function downloadImage(path: string): Promise<Blob | null> {
+  const { data, error } = await supabase.storage.from(IMAGE_BUCKET).download(path)
+  return error ? null : data
 }
 
-/** Every new file goes into the library. Before migration 0018 there is no library: skip quietly. */
-async function recordInLibrary(userId: string, files: { path: string; bytes: number }[]) {
-  if (!files.length) return
-  const { error } = await supabase.from('images').insert(files.map((f) => ({ user_id: userId, path: f.path, source: 'upload', bytes: f.bytes })))
-  if (error) console.warn('Image not added to the library', error.message)
-}
-
-export async function fetchLibrary(): Promise<{ images: LibraryImage[]; uses: Record<string, ImageUse[]> }> {
-  const [imgs, posts] = await Promise.all([
-    supabase.from('images').select('id, path, source, prompt, alt, width, height, bytes, created_at').order('created_at', { ascending: false }).limit(500),
-    supabase.from('posts').select('id, idea_id, platform, status, images').not('image_path', 'is', null).limit(1000),
-  ])
-  if (imgs.error) throw new ImageError(offline() ? 'offline' : /jwt/i.test(imgs.error.message) ? 'session' : 'save')
-  const uses: Record<string, ImageUse[]> = {}
-  for (const p of (posts.data ?? []) as { id: string; idea_id: string; platform: string; status: string; images: PostImageItem[] | null }[]) {
-    for (const img of p.images ?? []) {
-      ;(uses[img.path] ??= []).push({ postId: p.id, ideaId: p.idea_id, status: p.status, platform: p.platform })
-    }
-  }
-  return { images: (imgs.data ?? []) as LibraryImage[], uses }
-}
-
-/** Uploads files straight to the library (not onto a post). All or nothing. */
-export async function uploadToLibrary(userId: string, files: File[]): Promise<void> {
-  for (const f of files) {
-    const problem = checkImage(f)
-    if (problem) throw new ImageError(problem)
-  }
-  if (offline()) throw new ImageError('offline')
-  const added: string[] = []
-  try {
-    for (const f of files) added.push(await upload(userId, f))
-    const { error } = await supabase.from('images').insert(added.map((path, i) => ({ user_id: userId, path, source: 'upload', bytes: files[i].size })))
-    if (error) throw new ImageError('save')
-  } catch (e) {
-    await removeFiles(added)
-    throw e instanceof ImageError ? e : new ImageError('upload')
-  }
-}
-
-export async function saveLibraryAlt(id: string, alt: string): Promise<void> {
-  const { error } = await supabase.from('images').update({ alt: alt.trim().slice(0, IMAGE_ALT_MAX) || null }).eq('id', id)
-  if (error) throw new ImageError(offline() ? 'offline' : 'save')
-}
-
-/** Statuses where Hiba is about to post the image: it must not disappear from under it. */
-const LOCKED = ['scheduled']
+const SWEEP_KEY = (userId: string) => `hiba-posted-images-cleaned-${userId}`
+const SWEEP_EVERY_MS = 6 * 60 * 60 * 1000
 
 /**
- * Deletes an image for good: takes it off every post that uses it (never a scheduled one), then
- * removes the file and the library entry. Published posts keep their copy on LinkedIn.
+ * Once a post is on LinkedIn, Hiba no longer needs its copy of the images: LinkedIn has its own,
+ * and the original stays in the person's library on their device. This removes those copies,
+ * keeping any image another unsent post still uses, and the old online library (kept until the
+ * owner decides). Runs quietly at most every few hours; failures are retried next time.
  */
-export async function deleteFromLibrary(image: LibraryImage, uses: ImageUse[]): Promise<void> {
-  if (uses.some((u) => LOCKED.includes(u.status))) throw new ImageError('in_use')
-  if (offline()) throw new ImageError('offline')
-  for (const u of uses) {
-    const { data, error } = await supabase.from('posts').select('images').eq('id', u.postId).maybeSingle()
-    if (error) throw new ImageError('save')
-    const list = ((data?.images ?? []) as PostImageItem[]).filter((i) => i.path !== image.path)
-    await saveList(u.postId, list)
-  }
-  const { error: fileError } = await supabase.storage.from(IMAGE_BUCKET).remove([image.path])
-  if (fileError) throw new ImageError(offline() ? 'offline' : 'save')
-  const { error } = await supabase.from('images').delete().eq('id', image.id)
-  if (error) throw new ImageError('save')
-}
+export async function cleanUpPostedImages(userId: string): Promise<void> {
+  let last = 0
+  try {
+    last = Number(localStorage.getItem(SWEEP_KEY(userId)) ?? 0)
+  } catch { /* storage blocked: just run */ }
+  const startedAt = Date.now()
+  if (startedAt - last < SWEEP_EVERY_MS || offline()) return
+  // A day of overlap, so a post published while a sweep ran is never missed.
+  const since = new Date(Math.max(0, last - 24 * 60 * 60 * 1000)).toISOString()
 
-/** Short-lived private links for many images at once (one request). */
-export async function previewUrls(paths: string[]): Promise<Record<string, string>> {
-  if (!paths.length) return {}
-  const { data, error } = await supabase.storage.from(IMAGE_BUCKET).createSignedUrls(paths, 60 * 60)
-  if (error) throw new ImageError('upload')
-  const out: Record<string, string> = {}
-  for (const d of data ?? []) if (d.path && d.signedUrl) out[d.path] = d.signedUrl
-  return out
+  const [posted, pending, library] = await Promise.all([
+    supabase.from('posts').select('images, image_path').eq('status', 'published').gte('published_at', since)
+      .not('image_path', 'is', null).limit(1000),
+    supabase.from('posts').select('images, image_path').neq('status', 'published').not('image_path', 'is', null).limit(5000),
+    supabase.from('images').select('path').limit(5000),
+  ])
+  if (posted.error || pending.error) return
+  const pathsOf = (rows: unknown[] | null) =>
+    (rows ?? []).flatMap((r) => imagesOf(r as { images: PostImageItem[] | null; image_path: string | null }).map((i) => i.path))
+  const keep = new Set([...pathsOf(pending.data), ...(library.error ? [] : (library.data ?? []).map((r) => r.path as string))])
+  const remove = [...new Set(pathsOf(posted.data))].filter((p) => !keep.has(p))
+  for (let i = 0; i < remove.length; i += 100) {
+    const { error } = await supabase.storage.from(IMAGE_BUCKET).remove(remove.slice(i, i + 100))
+    if (error) return
+  }
+  try {
+    localStorage.setItem(SWEEP_KEY(userId), String(startedAt))
+  } catch { /* fine: it runs again next time */ }
 }
