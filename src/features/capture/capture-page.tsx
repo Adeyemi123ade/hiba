@@ -13,8 +13,10 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { SCHEDULE_ERROR_TEXT, ScheduleError, backToApproved } from '@/features/content/api/schedule-service'
-import { PostMedia } from '@/features/capture/post-attachment'
-import { imageFields, imagesOf } from '@/features/content/api/image-service'
+import { PostMedia, type PostMediaHandle } from '@/features/capture/post-attachment'
+import { AttachmentMenu } from '@/features/capture/attachment-menu'
+import { attachChoices } from '@/features/capture/attachment-choices'
+import { IMAGE_MAX_COUNT, imageFields, imagesOf } from '@/features/content/api/image-service'
 import { AnglesPanel } from '@/features/capture/angles-panel'
 import { CommentsPanel } from '@/features/capture/comments-panel'
 import { LeftToday } from '@/features/content/left-today'
@@ -90,6 +92,7 @@ export function CapturePage() {
   // HPD-53: the edit waiting to be saved, so it is never dropped when the person leaves.
   const pending = useRef<Post | null>(null)
   const loadedIdea = useRef<string | null>(null)
+  const mediaRef = useRef<PostMediaHandle>(null)
 
   const [heardNotice, setHeardNotice] = useState(false)
   const [voiceSlow, setVoiceSlow] = useState(false)
@@ -542,6 +545,9 @@ export function CapturePage() {
   if (phase === 'drafts' && active) {
     const count = countLabel(active.platform, active.body)
     const isApproved = !AWAITING_REVIEW.includes(active.status)
+    // Attachments can still change until the post is scheduled or published (as before).
+    const mediaEditable = active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'
+    const canAttach = active.platform === 'linkedin' && Boolean(userId) && mediaEditable
     const anyDraft = posts.some((p) => AWAITING_REVIEW.includes(p.status))
     return (
       <div>
@@ -602,14 +608,24 @@ export function CapturePage() {
             </label>
           )}
           <label htmlFor="draft-text" className="sr-only">Draft text</label>
-          <textarea
-            id="draft-text"
-            value={active.body}
-            readOnly={isApproved}
-            onChange={(e) => editActive({ body: e.target.value })}
-            aria-describedby="draft-count"
-            className="min-h-[240px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] p-3 text-[var(--color-text-primary)]"
-          />
+          <div className="relative">
+            <textarea
+              id="draft-text"
+              value={active.body}
+              readOnly={isApproved}
+              onChange={(e) => editActive({ body: e.target.value })}
+              aria-describedby="draft-count"
+              className={clsx('min-h-[240px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] p-3 text-[var(--color-text-primary)]',
+                canAttach && 'pb-12')}
+            />
+            {canAttach && (
+              <div className="absolute bottom-2 left-2">
+                <AttachmentMenu disabled={!online}
+                  enabled={attachChoices(imagesOf(active).length, IMAGE_MAX_COUNT, Boolean(active.attachment))}
+                  onChoose={(choice) => mediaRef.current?.choose(choice)} />
+              </div>
+            )}
+          </div>
           <div id="draft-count" className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)]">
             <span className="flex flex-wrap items-center gap-1">
               {count.text}
@@ -631,13 +647,14 @@ export function CapturePage() {
 
           {active.platform === 'linkedin' && userId && (
             <PostMedia
+              ref={mediaRef}
               key={active.id}
               userId={userId}
               postId={active.id}
               posted={wasPublished(active)}
               images={imagesOf(active)}
               attachment={active.attachment ?? null}
-              editable={active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'}
+              editable={mediaEditable}
               online={online}
               onImagesChange={(images) => {
                 setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, ...imageFields(images) } : p)))
