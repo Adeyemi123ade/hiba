@@ -4,11 +4,13 @@ import { ProfileSettings } from '@/features/settings/profile-settings'
 import { NameSettings } from '@/features/settings/name-settings'
 import { VoiceSettings } from '@/features/settings/voice-settings'
 import { PlatformSettings } from '@/features/settings/platform-settings'
+import { DeleteAccount } from '@/features/settings/delete-account'
 
 const SECTIONS = [
   { id: 'settings-profile', label: 'Profile and preferences' },
   { id: 'settings-accounts', label: 'Connected accounts' },
   { id: 'settings-notifications', label: 'Notifications' },
+  { id: 'settings-delete', label: 'Delete account' },
 ]
 
 /** H11 Settings: profile and preferences (HPD-77, HPD-78), connected accounts (HPD-80), notifications (HPD-79). */
@@ -53,6 +55,10 @@ export function SettingsPage() {
             will choose them here.
           </p>
         </Card>
+      </section>
+
+      <section id="settings-delete" aria-labelledby="delete-title" className="scroll-mt-4">
+        <DeleteAccount />
       </section>
     </div>
   )
