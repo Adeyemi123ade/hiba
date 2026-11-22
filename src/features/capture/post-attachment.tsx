@@ -14,9 +14,11 @@ const outlineBtn =
  * Everything attached to a LinkedIn post: up to 9 images, OR one video, OR one document
  * (PDF, PowerPoint or Word; a PDF shows on LinkedIn as a swipeable carousel). That is LinkedIn's rule.
  */
-export function PostMedia({ userId, postId, images, attachment, editable, online, onImagesChange, onAttachmentChange }: {
+export function PostMedia({ userId, postId, posted = false, images, attachment, editable, online, onImagesChange, onAttachmentChange }: {
   userId: string
   postId: string
+  /** On LinkedIn already: Hiba may have removed its copy of the images. */
+  posted?: boolean
   images: PostImageItem[]
   attachment: PostAttachment | null
   editable: boolean
@@ -97,7 +99,7 @@ export function PostMedia({ userId, postId, images, attachment, editable, online
 
   return (
     <>
-      <PostImages userId={userId} postId={postId} images={images} editable={editable} online={online} onChange={onImagesChange} />
+      <PostImages userId={userId} postId={postId} posted={posted} images={images} editable={editable} online={online} onChange={onImagesChange} />
       {editable && (
         <div className="mt-2 rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] p-3">
           {fileInput}

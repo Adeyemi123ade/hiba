@@ -516,7 +516,7 @@ export function CapturePage() {
   if (phase === 'loading') {
     return (
       <div>
-        <h1 className="mb-4 text-2xl font-bold text-[var(--color-text-primary)]">Capture</h1>
+        <h1 className="sr-only">Capture</h1>
         <SkeletonCard lines={4} />
       </div>
     )
@@ -525,7 +525,7 @@ export function CapturePage() {
   if (phase === 'working') {
     return (
       <div>
-        <h1 className="mb-4 text-2xl font-bold text-[var(--color-text-primary)]">Capture</h1>
+        <h1 className="sr-only">Capture</h1>
         <Card role="status">
           <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold text-[var(--color-text-primary)]">
             <Loader2 className="animate-spin" size={20} aria-hidden="true" /> Turning your idea into posts...
@@ -634,6 +634,7 @@ export function CapturePage() {
               key={active.id}
               userId={userId}
               postId={active.id}
+              posted={wasPublished(active)}
               images={imagesOf(active)}
               attachment={active.attachment ?? null}
               editable={active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'}
@@ -811,13 +812,13 @@ export function CapturePage() {
   const remaining = IDEA_MAX - text.length
   return (
     <div>
-      <h1 className="mb-4 text-2xl font-bold text-[var(--color-text-primary)]">Capture</h1>
+      <h1 className="sr-only">Capture</h1>
       {errorBanner}
       {clarify && (
         <Banner tone="info">
           <span>
             <span className="font-semibold">Before I write, one question: </span>{clarify}
-            <span className="mt-1 block">Add your answer to your idea below, then press Make my posts again. Your idea is saved.</span>
+            <span className="mt-1 block">Add your answer to your idea below, then press Draft my post again. Your idea is saved.</span>
           </span>
         </Banner>
       )}
@@ -951,7 +952,7 @@ export function CapturePage() {
           </button>
           <div className="flex flex-col items-end gap-1">
             <button type="button" className={primaryBtn} onClick={makePosts} disabled={!online}>
-              Make my posts
+              Draft my post
             </button>
             <LeftToday action="draft" />
           </div>
