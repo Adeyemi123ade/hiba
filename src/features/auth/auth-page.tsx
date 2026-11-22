@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { RegisterForm } from '@/features/auth/components/register-form'
 import { LoginForm } from '@/features/auth/components/login-form'
 import { OtpForm } from '@/features/auth/components/otp-form'
@@ -26,9 +26,15 @@ const HEADINGS: Record<Mode, string> = {
  * without a page refresh. No Magic Link anywhere in this flow.
  */
 export function AuthPage() {
+  // After deleting an account, Settings sends the person here with a message to show.
+  const arrivedWith = (useLocation().state as { notice?: unknown } | null)?.notice
   const [mode, setMode] = useState<Mode>('register')
   const [email, setEmail] = useState('')
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(typeof arrivedWith === 'string' ? arrivedWith : null)
+  // Signing out may open this page a moment before the message arrives, so pick it up then too.
+  useEffect(() => {
+    if (typeof arrivedWith === 'string') setNotice(arrivedWith)
+  }, [arrivedWith])
   const navigate = useNavigate()
 
   function go(next: Mode, nextEmail = email) {
