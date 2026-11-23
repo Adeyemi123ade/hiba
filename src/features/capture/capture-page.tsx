@@ -44,7 +44,7 @@ const order = (p: Platform) => PLATFORMS.findIndex((x) => x.id === p)
 /** What publishing looks like for each platform until accounts can be connected. */
 const NEXT_STEP: Record<Platform, string> = {
   linkedin: 'Post it to your LinkedIn profile now, or copy it and post it yourself.',
-  x: 'Connect X first to schedule it. For now, copy it and post it on X yourself.',
+  x: 'Copy it and post it on X yourself.',
   substack: 'Substack has no automatic posting. Copy it and paste it into a new Substack post.',
 }
 

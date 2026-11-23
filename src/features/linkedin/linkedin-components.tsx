@@ -30,7 +30,7 @@ function CancelledNotice() {
   if (notice !== 'cancelled') return null
   return (
     <div role="status" className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-md)] bg-sky-50 px-3 py-2 text-sm text-sky-900">
-      <span>LinkedIn was not connected because you cancelled. You can connect any time.</span>
+      <span>LinkedIn was not connected because you cancelled. You can reconnect any time.</span>
       <button type="button" className="font-semibold underline" onClick={dismiss}>OK</button>
     </div>
   )
@@ -97,7 +97,7 @@ export function LinkedInConnectionCard() {
           {connection.isSuccess && !c && (
             <>
               <p className="text-sm text-[var(--color-text-secondary)]">
-                Not connected. Connect once, and you can post approved drafts to your profile with one click. Hiba never posts without you.
+                Not connected. Connect once, and you can post approved drafts to your profile with one click. Hiba never posts without your approval.
               </p>
               <button type="button" className={`${primaryBtn} mt-3`} onClick={connect} disabled={busy}>
                 {busy ? 'Opening LinkedIn...' : 'Connect LinkedIn'}
@@ -125,7 +125,7 @@ export function LinkedInConnectionCard() {
                   <button type="button" className={outlineBtn} onClick={() => setConfirming(true)}>Disconnect</button>
                 ) : (
                   <div role="alertdialog" aria-label="Disconnect LinkedIn" className="w-full rounded-[var(--radius-md)] bg-amber-50 p-3 text-sm text-amber-900">
-                    <p>Disconnect LinkedIn? Hiba will stop being able to post for you. Posts already on LinkedIn stay there.</p>
+                    <p>Disconnect LinkedIn? Hiba will no longer be able to post for you. Posts already on LinkedIn stay there.</p>
                     <div className="mt-2 flex gap-2">
                       <button type="button" className={primaryBtn} onClick={disconnect} disabled={disconnecting}>
                         {disconnecting ? 'Disconnecting...' : 'Yes, disconnect'}
@@ -375,7 +375,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
           )}
           {!images.length && !attachment && (
             <p className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-              No image attached. Posts with an image usually get much more attention. You can add one above, or post without it.
+              No image attached. Posts with an image usually get much more attention. You can add an image, or post without it.
             </p>
           )}
 
@@ -398,7 +398,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
                   </p>
                 </>
               ) : (
-                <p className="text-[var(--color-text-secondary)]">No follow-up comments will be posted.</p>
+                <p className="text-[var(--color-text-secondary)]">No follow-up comments attached.</p>
               )}
               {preview.notApproved > 0 && (
                 <p className="mt-1 rounded-[var(--radius-sm)] bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
@@ -500,9 +500,9 @@ function ScheduledBox({ postId, scheduledFor, followUps, onChange }: {
         </div>
       ) : confirmCancel ? (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          Cancel the scheduled time? The post goes back to Approved and nothing is posted.
+          Cancel the scheduled time? The post will not be published.
           <button type="button" className={outlineBtn} onClick={cancel} disabled={busy !== null}>
-            {busy === 'cancel' ? 'Cancelling...' : 'Yes, cancel it'}
+            {busy === 'cancel' ? 'Cancelling...' : 'Yes, cancel'}
           </button>
           <button type="button" className="font-semibold underline" onClick={() => setConfirmCancel(false)}>Keep it scheduled</button>
         </div>

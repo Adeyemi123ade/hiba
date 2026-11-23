@@ -68,7 +68,7 @@ export function ActivityCard({ userId }: { userId: string | undefined }) {
             )}
           </p>
           <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-            Views, reactions and comments from other people are shown on LinkedIn itself. LinkedIn does not share them with Hiba yet.
+            Views, reactions and comments from other people are shown on LinkedIn itself. LinkedIn does not share them with Hiba.
           </p>
         </>
       )}

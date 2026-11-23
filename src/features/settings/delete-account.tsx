@@ -10,15 +10,6 @@ import {
 
 export const ACCOUNT_DELETED_NOTICE = 'Your account has been deleted.'
 
-const WHAT_GOES = [
-  'Your profile, onboarding answers and writing preferences',
-  'All your ideas, drafts, posts, comments and schedules. Scheduled posts will not be published.',
-  'Your posting history and usage records',
-  'Your LinkedIn connection',
-  'Your images and files stored by Hiba, and the image library on this device',
-  'Your sign-in account',
-]
-
 /** HPD-157: anyone can delete their own account here. Once deleted, everything goes. */
 export function DeleteAccount() {
   const { session } = useSession()
@@ -56,8 +47,7 @@ export function DeleteAccount() {
     <Card className="border-red-700">
       <h2 id="delete-title" className="text-lg font-semibold text-red-800">Delete your account</h2>
       <p className="text-sm text-[var(--color-text-secondary)]">
-        This removes your account and everything in it from Hiba for good. It cannot be undone. Posts already on
-        LinkedIn stay there; delete them on LinkedIn if you want them gone.
+        This deletes your account and every detail related to you. This process cannot be reversed.
       </p>
 
       {!open ? (
@@ -67,14 +57,7 @@ export function DeleteAccount() {
         </button>
       ) : (
         <div className="mt-3">
-          <p className="text-sm font-semibold text-[var(--color-text-primary)]">These will be deleted:</p>
-          <ul className="mt-1 list-disc pl-5 text-sm text-[var(--color-text-primary)]">
-            {WHAT_GOES.map((w) => <li key={w}>{w}</li>)}
-          </ul>
-          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-            If you use Hiba on another device, its image library stays there until you clear that browser.
-          </p>
-          <label htmlFor="delete-confirm-email" className="mt-3 block text-sm font-medium text-[var(--color-text-primary)]">
+          <label htmlFor="delete-confirm-email" className="block text-sm font-medium text-[var(--color-text-primary)]">
             Type your email address to confirm
           </label>
           <input id="delete-confirm-email" type="email" autoComplete="off" value={typed} disabled={deleting}
@@ -82,15 +65,16 @@ export function DeleteAccount() {
             placeholder={user?.email ?? ''}
             className="mt-1 h-11 w-full max-w-sm rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 text-sm" />
           {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{DELETE_ERROR_TEXT[error]}</p>}
-          {!online && <p className="mt-2 text-sm text-[var(--color-text-secondary)]">You are offline. Reconnect to delete your account.</p>}
-          <div className="mt-3 flex flex-wrap gap-2">
+          {!online && <p className="mt-2 text-sm text-[var(--color-text-secondary)]">You are offline. Check your network connection and try again.</p>}
+          {/* Side by side, never stacked (owner, 23 Nov 2026). */}
+          <div className="mt-3 flex gap-2">
             <button type="button" onClick={confirm} disabled={!matches || deleting || !online}
-              className="rounded-[var(--radius-sm)] bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
-              {deleting ? 'Deleting your account...' : 'Delete my account forever'}
+              className="whitespace-nowrap rounded-[var(--radius-sm)] bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
+              {deleting ? 'Deleting...' : 'Delete account'}
             </button>
             <button type="button" onClick={close} disabled={deleting}
-              className="rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-[var(--color-primary-dark)] disabled:opacity-50">
-              Keep my account
+              className="whitespace-nowrap rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-[var(--color-primary-dark)] disabled:opacity-50">
+              Cancel
             </button>
           </div>
         </div>
