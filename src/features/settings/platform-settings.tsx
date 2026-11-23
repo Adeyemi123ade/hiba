@@ -56,8 +56,8 @@ export function PlatformSettings() {
       </fieldset>
       <p className="mt-2 text-xs" aria-live="polite">
         {state === 'saved' && <span className="text-[var(--color-text-secondary)]">Saved.</span>}
-        {state === 'failed' && <span className="text-[var(--color-error)]">Not saved. Check your connection and try again.</span>}
-        {!online && <span className="text-[var(--color-text-secondary)]">You are offline. Reconnect to change this.</span>}
+        {state === 'failed' && <span className="text-[var(--color-error)]">We could not save that.</span>}
+        {!online && <span className="text-[var(--color-text-secondary)]">You are offline. Check your network connection and try again.</span>}
       </p>
     </Card>
   )

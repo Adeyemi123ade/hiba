@@ -67,7 +67,7 @@ export function VoiceSettings() {
   const [reset, setReset] = useState(false)
 
   async function studyAgain() {
-    if (!navigator.onLine) { setError('You are offline. Reconnect, then try again.'); return }
+    if (!navigator.onLine) { setError('You are offline. Check your network connection and try again.'); return }
     setBusy(true)
     setError(null)
     const { error: e } = await supabase.from('profiles')
@@ -121,8 +121,8 @@ export function VoiceSettings() {
         {title}
         {reset && <p role="status" className="mt-1 flex items-center gap-1 text-sm text-[var(--color-primary-dark)]"><Check size={14} aria-hidden="true" /> Done. Hiba will study your writing again on your next draft.</p>}
         <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-          Hiba has not studied your writing yet. It does this on your next draft, from your writing sample (under
-          Profile and preferences) and the LinkedIn posts you approve. The more you write and approve, the closer it gets.
+          Hiba will study your writing style on your next draft, from your writing sample (under
+          Profile and preferences) and the posts you approve. The more you write and approve, the better Hiba understands your voice.
         </p>
       </Card>
     )
@@ -169,7 +169,7 @@ export function VoiceSettings() {
       {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
       {expired && (
         <p role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-sm text-red-700">
-          Your session expired. Sign in again, then try again. <SignInAgainButton />
+          Your session expired. Sign in again to continue. <SignInAgainButton />
         </p>
       )}
       <button type="button" onClick={studyAgain} disabled={busy || !online}
@@ -177,7 +177,7 @@ export function VoiceSettings() {
         {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <RotateCcw size={16} aria-hidden="true" />}
         {busy ? 'Working...' : 'Study my writing again'}
       </button>
-      {!online && <p role="status" className="mt-1 text-sm text-amber-800">You are offline. Reconnect to use this.</p>}
+      {!online && <p role="status" className="mt-1 text-sm text-amber-800">You are offline. Check your network connection and try again.</p>}
     </Card>
   )
 }

@@ -200,9 +200,10 @@ function ImageCard({ image, index, count, postId, posted, editable, disabled, bu
 
   return (
     <li className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] p-2">
-      <div className="relative flex h-40 w-full items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-bg-soft-green)]">
+      {/* The whole image at its own shape, never cropped (HPD-161). The fixed height is only for the placeholder. */}
+      <div className={`relative flex w-full items-center justify-center overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-bg-soft-green)] ${preview ? '' : 'h-40'}`}>
         {preview ? (
-          <img src={preview} alt={altText || `Image ${n} attached to this post`} className="h-full w-full object-cover" />
+          <img src={preview} alt={altText || `Image ${n} attached to this post`} className="block max-h-[28rem] w-full object-contain" />
         ) : previewFailed && posted ? (
           <span className="px-2 text-center text-xs text-[var(--color-text-secondary)]">
             Posted to LinkedIn. Hiba no longer keeps a copy of this image.

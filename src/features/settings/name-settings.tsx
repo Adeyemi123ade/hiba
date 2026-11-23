@@ -59,7 +59,7 @@ export function NameSettings() {
       return
     }
     if (!navigator.onLine) {
-      setSaveError('You are offline. Your change is kept here. Reconnect, then press Save again.')
+      setSaveError('You are offline. Check your network connection and try again.')
       return
     }
     setSaving(true)
@@ -69,7 +69,7 @@ export function NameSettings() {
     setSaving(false)
     if (error) {
       if (error.code === 'PGRST301' || /jwt/i.test(error.message)) setExpired(true)
-      else setSaveError('We could not save your name. Your change is kept here. Please try again.')
+      else setSaveError('We could not save that.')
       return
     }
     await queryClient.invalidateQueries({ queryKey: ['profile-names', userId] })
@@ -130,7 +130,7 @@ export function NameSettings() {
           {saveError && <p role="alert" className="text-sm text-red-700 sm:col-span-2">{saveError}</p>}
           {expired && (
             <p role="alert" className="flex flex-wrap items-center gap-2 text-sm text-red-700 sm:col-span-2">
-              Your session expired. Your change is kept here. Sign in again, then press Save. <SignInAgainButton />
+              Your session expired. Sign in again to continue. <SignInAgainButton />
             </p>
           )}
           <div className="flex flex-wrap gap-2 sm:col-span-2">

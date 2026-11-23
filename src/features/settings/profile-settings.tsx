@@ -32,7 +32,6 @@ const outlineBtn =
 /** Extra words shown under some answers in Settings, so nothing promises more than Hiba does today. */
 const NOTES: Record<string, string> = {
   writingSample: 'Paste a post you wrote and like. Hiba copies its voice and its layout: line breaks, grouping and how it ends.',
-  approval: 'Automatic publishing is not built yet. Until it is, every post waits for your approval, whatever you choose here.',
 }
 
 const draftKey = (userId: string, stepId: string) => `hiba:settings-draft:${userId}:${stepId}`
@@ -109,7 +108,7 @@ export function ProfileSettings() {
   async function save(step: OnboardingStep) {
     if (!userId) return
     if (!navigator.onLine) {
-      setError('You are offline. Your change is kept on this page. Reconnect, then press Save again.')
+      setError('You are offline. Check your network connection and try again.')
       return
     }
     const clean =
@@ -142,7 +141,7 @@ export function ProfileSettings() {
       if (e.status === 401 || e.code === 'PGRST301' || /jwt/i.test(e.message ?? '')) setSessionExpired(true)
       else if (!navigator.onLine || /failed to fetch|network/i.test(e.message ?? '')) {
         setError('We could not connect. Your change is kept on this page. Check your internet connection, then press Save again.')
-      } else setError('We could not save that. Your change is kept on this page. Please try again.')
+      } else setError('We could not save that.')
     } finally {
       setSaving(false)
     }
@@ -156,7 +155,7 @@ export function ProfileSettings() {
       <Banner tone="error" action={
         <button type="button" className="font-semibold underline" onClick={() => profile.refetch()} disabled={!online}>Try again</button>
       }>
-        {online ? 'We could not load your settings.' : 'You are offline. Reconnect to see your settings.'}
+        {online ? 'We could not load your settings.' : 'You are offline. Check your network connection and try again.'}
       </Banner>
     )
   }
@@ -165,10 +164,10 @@ export function ProfileSettings() {
     <>
       {sessionExpired && (
         <Banner tone="warning" action={<SignInAgainButton />}>
-          Your session expired. Your change is kept on this device. Sign in again, then press Save.
+          Your session expired. Sign in again to continue.
         </Banner>
       )}
-      {!online && <Banner tone="warning">You are offline. You can look at your settings, but saving needs a connection.</Banner>}
+      {!online && <Banner tone="warning">You are offline. Check your network connection and try again.</Banner>}
 
       {blocker.state === 'blocked' && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
@@ -279,7 +278,7 @@ function FollowUpSwitch({ answers, userId, online, onSaved }: {
       onSaved(merged)
       setDone(true)
     } catch {
-      setProblem(navigator.onLine ? 'We could not save that. Please try again.' : 'You are offline. Reconnect, then try again.')
+      setProblem(navigator.onLine ? 'We could not save that.' : 'You are offline. Check your network connection and try again.')
     } finally {
       setSaving(false)
     }
@@ -291,7 +290,7 @@ function FollowUpSwitch({ answers, userId, online, onSaved }: {
         <div>
           <h2 id="followups-title" className="text-lg font-semibold text-[var(--color-text-primary)]">Follow-up comments</h2>
           <p className="text-sm text-[var(--color-text-secondary)]">
-            Hiba can write 5 to 10 comments that extend each LinkedIn post. You review and copy them; Hiba never posts them for you.
+            Hiba can write 5 to 10 comments that extend each post; you review and approve them.
           </p>
         </div>
         <button type="button" role="switch" aria-checked={on} aria-labelledby="followups-title" onClick={flip} disabled={saving || !online}
