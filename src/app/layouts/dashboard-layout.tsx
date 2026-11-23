@@ -8,6 +8,7 @@ import { Banner } from '@/components/ui/banner'
 import { useSession } from '@/features/auth/use-session'
 import { cleanUpPostedImages } from '@/features/content/api/image-service'
 import { TermsUpdateNotice } from '@/features/legal/terms-update-notice'
+import { NotificationBell } from '@/features/notifications/notification-bell'
 
 const NAV = [
   { to: '/dashboard/home', label: 'Home', icon: Home },
@@ -50,7 +51,10 @@ export function DashboardLayout() {
   return (
     <div className="flex min-h-screen bg-[var(--color-bg-cream)]">
       <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col gap-1 border-r border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:flex">
-        <span className="mb-4 px-3 text-xl font-bold text-[var(--color-ink)]">Hiba</span>
+        <div className="mb-4 flex items-center justify-between px-3">
+          <span className="text-xl font-bold text-[var(--color-ink)]">Hiba</span>
+          <NotificationBell where="sidebar" />
+        </div>
         <nav aria-label="Main" className="flex flex-col gap-1">
           {NAV.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={linkClass}>
@@ -71,9 +75,12 @@ export function DashboardLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-3 lg:hidden">
           <span className="text-lg font-bold text-[var(--color-ink)]">Hiba</span>
-          <button type="button" onClick={signOut} disabled={signingOut} className="text-sm text-[var(--color-text-secondary)]">
-            {signingOut ? 'Signing out...' : 'Sign out'}
-          </button>
+          <div className="flex items-center gap-3">
+            <NotificationBell where="header" />
+            <button type="button" onClick={signOut} disabled={signingOut} className="text-sm text-[var(--color-text-secondary)]">
+              {signingOut ? 'Signing out...' : 'Sign out'}
+            </button>
+          </div>
         </header>
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pb-24 pt-6 lg:pb-10">
           {!online && <Banner tone="warning">You are offline. Anything you type stays on this page until you reconnect.</Banner>}

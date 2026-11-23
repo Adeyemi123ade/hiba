@@ -23,6 +23,10 @@ import { CommentsPanel } from '@/features/capture/comments-panel'
 import { LeftToday } from '@/features/content/left-today'
 import { ALLOWANCES_KEY, useDraftPlatforms } from '@/features/content/use-allowances'
 import { useProfile } from '@/features/onboarding/use-profile'
+import { readPrefs } from '@/features/onboarding/steps'
+import { fetchLinkedInConnection, isExpired } from '@/features/linkedin/linkedin-service'
+import { fetchCalendarPosts, formatWhen, schedulePost } from '@/features/content/api/schedule-service'
+import { AUTO_PUBLISH, nextPostingSlot } from '@/features/content/auto-schedule'
 import { DeletePostDialog } from '@/features/library/delete-post-dialog'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
@@ -50,6 +54,26 @@ const NEXT_STEP: Record<Platform, string> = {
 
 function countLabel(platform: Platform, body: string) {
   return lengthCheck(platform, body)
+}
+
+/**
+ * Publish automatically (HPD-163): after Approve, put the LinkedIn post on the calendar at the
+ * preferred posting time, on the next free day. If that cannot happen, the post stays Approved.
+ */
+async function autoSchedule(postId: string, workingPrefs: string | string[] | undefined): Promise<{ at?: string; note: string }> {
+  try {
+    const connection = await fetchLinkedInConnection()
+    if (!connection || isExpired(connection)) return { note: 'Connect LinkedIn in Settings to schedule approved posts automatically.' }
+    const prefs = readPrefs(workingPrefs)
+    const busy = (await fetchCalendarPosts(0))
+      .filter((p) => p.status === 'scheduled' && p.scheduled_for).map((p) => new Date(p.scheduled_for!))
+    const slot = nextPostingSlot({ now: new Date(), postingTime: prefs.postingTime, timeZone: prefs.timezone, busy })
+    if (!slot) return { note: 'It could not be scheduled automatically. Choose a time below.' }
+    const at = await schedulePost(postId, slot)
+    return { at, note: `Scheduled for ${formatWhen(at)}, your preferred posting time.` }
+  } catch {
+    return { note: 'It could not be scheduled automatically. Choose a time below.' }
+  }
 }
 
 export function CapturePage() {
@@ -84,6 +108,8 @@ export function CapturePage() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [copied, setCopied] = useState<'ok' | 'failed' | null>(null)
   const [approving, setApproving] = useState(false)
+  // Publish automatically (HPD-163): what happened after Approve, for the post it applies to.
+  const [autoNote, setAutoNote] = useState<{ postId: string; text: string } | null>(null)
   // HPD-57: archive, restore and permanent delete of the open post.
   const [lifecycle, setLifecycle] = useState<{ busy: boolean; confirmScheduled: boolean; deleteOpen: boolean; message: string | null; error: string | null }>(
     { busy: false, confirmScheduled: false, deleteOpen: false, message: null, error: null },
@@ -345,6 +371,14 @@ export function CapturePage() {
       pending.current = null
       setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'approved' } : p)))
       setSaveState('saved')
+      if (active.platform === 'linkedin' && profile?.onboarding?.approval === AUTO_PUBLISH) {
+        const auto = await autoSchedule(active.id, profile.onboarding.workingPrefs)
+        if (auto.at) {
+          setPosts((list) => list.map((p) => (p.id === active.id ? { ...p, status: 'scheduled', scheduled_for: auto.at! } : p)))
+          queryClient.invalidateQueries({ queryKey: ['calendar'] })
+        }
+        setAutoNote({ postId: active.id, text: auto.note })
+      }
       queryClient.invalidateQueries({ queryKey: ['home-posts'] })
       queryClient.invalidateQueries({ queryKey: ['library'] })
     } catch (e) {
@@ -659,6 +693,7 @@ export function CapturePage() {
           {isApproved ? (
             <div className="mt-4 rounded-[var(--radius-md)] bg-[var(--color-primary-soft)] p-4" role="status">
               <p className="font-semibold text-[var(--color-primary-dark)]">{STATUS_LABELS[active.status]}.</p>
+              {autoNote?.postId === active.id && <p className="mt-1 text-sm text-[var(--color-text-primary)]">{autoNote.text}</p>}
               {active.status === 'approved' && (
                 <p className="mt-1 text-sm text-[var(--color-text-primary)]">{NEXT_STEP[active.platform]}</p>
               )}
