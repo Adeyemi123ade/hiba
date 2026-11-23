@@ -5,14 +5,16 @@ import { NameSettings } from '@/features/settings/name-settings'
 import { VoiceSettings } from '@/features/settings/voice-settings'
 import { PlatformSettings } from '@/features/settings/platform-settings'
 import { DeleteAccount } from '@/features/settings/delete-account'
+import { NotificationSettings } from '@/features/settings/notification-settings'
 
 const SECTIONS = [
   { id: 'settings-profile', label: 'Profile and preferences' },
   { id: 'settings-accounts', label: 'Connected accounts' },
+  { id: 'settings-notifications', label: 'Notifications' },
   { id: 'settings-delete', label: 'Delete account' },
 ]
 
-/** H11 Settings: profile and preferences (HPD-77, HPD-78), connected accounts (HPD-80), delete account (HPD-157). */
+/** H11 Settings: profile and preferences (HPD-77, HPD-78), connected accounts (HPD-80), notifications (HPD-79), delete account (HPD-157). */
 export function SettingsPage() {
   return (
     <div>
@@ -43,6 +45,10 @@ export function SettingsPage() {
             No connection needed. Tick them under Platforms to write for, and Hiba writes those drafts too. You use Copy to post them yourself.
           </p>
         </Card>
+      </section>
+
+      <section id="settings-notifications" aria-labelledby="notifications-title" className="scroll-mt-4">
+        <NotificationSettings />
       </section>
 
       <section id="settings-delete" aria-labelledby="delete-title" className="scroll-mt-4">
