@@ -357,7 +357,7 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
               <div className={`mt-3 grid gap-1 ${images.length === 1 ? 'grid-cols-1' : images.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                 {images.map((img, i) => preview.imageUrls[i] ? (
                   <img key={img.path} src={preview.imageUrls[i]!} alt={img.alt || `Image ${i + 1} attached to this post`}
-                    className={`${images.length === 1 ? 'max-h-72' : 'h-28'} w-full rounded-[var(--radius-sm)] object-cover`} />
+                    className={`${images.length === 1 ? 'max-h-[28rem] object-contain' : 'h-28 object-cover'} w-full rounded-[var(--radius-sm)]`} />
                 ) : (
                   <span key={img.path} className="flex h-28 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-bg-soft-green)] px-1 text-center text-xs text-[var(--color-text-secondary)]">
                     Image {i + 1}: preview could not load, it is still posted

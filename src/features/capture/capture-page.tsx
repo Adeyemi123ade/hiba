@@ -15,6 +15,7 @@ import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
 import { SCHEDULE_ERROR_TEXT, ScheduleError, backToApproved } from '@/features/content/api/schedule-service'
 import { PostMedia, type PostMediaHandle } from '@/features/capture/post-attachment'
 import { AttachmentMenu } from '@/features/capture/attachment-menu'
+import { PostTextBox } from '@/features/capture/post-text-box'
 import { attachChoices } from '@/features/capture/attachment-choices'
 import { IMAGE_MAX_COUNT, imageFields, imagesOf } from '@/features/content/api/image-service'
 import { AnglesPanel } from '@/features/capture/angles-panel'
@@ -608,24 +609,12 @@ export function CapturePage() {
             </label>
           )}
           <label htmlFor="draft-text" className="sr-only">Draft text</label>
-          <div className="relative">
-            <textarea
-              id="draft-text"
-              value={active.body}
-              readOnly={isApproved}
-              onChange={(e) => editActive({ body: e.target.value })}
-              aria-describedby="draft-count"
-              className={clsx('min-h-[240px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] p-3 text-[var(--color-text-primary)]',
-                canAttach && 'pb-12')}
-            />
-            {canAttach && (
-              <div className="absolute bottom-2 left-2">
-                <AttachmentMenu disabled={!online}
-                  enabled={attachChoices(imagesOf(active).length, IMAGE_MAX_COUNT, Boolean(active.attachment))}
-                  onChoose={(choice) => mediaRef.current?.choose(choice)} />
-              </div>
-            )}
-          </div>
+          <PostTextBox value={active.body} readOnly={isApproved} onChange={(body) => editActive({ body })} describedBy="draft-count"
+            bar={canAttach && (
+              <AttachmentMenu disabled={!online}
+                enabled={attachChoices(imagesOf(active).length, IMAGE_MAX_COUNT, Boolean(active.attachment))}
+                onChoose={(choice) => mediaRef.current?.choose(choice)} />
+            )} />
           <div id="draft-count" className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)]">
             <span className="flex flex-wrap items-center gap-1">
               {count.text}
