@@ -93,6 +93,21 @@ export async function signInWithGoogle() {
   return data
 }
 
+/**
+ * True when this session was opened from an emailed code or link (not from Google itself),
+ * which proves the person controls the email address. Read from the token's sign-in methods.
+ */
+export function signedInByEmail(accessToken: string | undefined): boolean {
+  try {
+    const part = (accessToken ?? '').split('.')[1] ?? ''
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='))
+    const amr = (JSON.parse(json) as { amr?: { method?: string }[] }).amr ?? []
+    return amr.some((m) => m.method === 'otp' || m.method === 'magiclink')
+  } catch {
+    return false
+  }
+}
+
 export function isHibaVerified(user: { user_metadata?: Record<string, unknown> } | null) {
   return Boolean(user?.user_metadata?.hiba_verified)
 }
@@ -100,7 +115,8 @@ export function isHibaVerified(user: { user_metadata?: Record<string, unknown> }
 export async function sendPostGoogleOtp(email: string) {
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { shouldCreateUser: false },
+    // If the email template sends a link instead of a code, the link comes back here.
+    options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/auth/callback` },
   })
   if (error) throw error
 }
