@@ -78,11 +78,8 @@ export async function signInWithPassword(email: string, password: string) {
 }
 
 /**
- * Google Sign-In — standard OAuth redirect, no code step in Supabase itself.
- * The "verification code" step for Google users is layered on top here:
- * a brand-new Google sign-in gets emailed a one-time code (same OTP path
- * as email registration) before reaching the dashboard; a returning,
- * already-verified Google user goes straight through. See auth-callback-page.tsx.
+ * Google Sign-In: standard OAuth redirect. Google proves the email, so there is no extra
+ * email step (HPD-167, owner 25 Nov 2026). The person lands on /auth/callback and goes in.
  */
 export async function signInWithGoogle() {
   const { data, error } = await supabase.auth.signInWithOAuth({
@@ -91,43 +88,4 @@ export async function signInWithGoogle() {
   })
   if (error) throw error
   return data
-}
-
-/**
- * True when this session was opened from an emailed code or link (not from Google itself),
- * which proves the person controls the email address. Read from the token's sign-in methods.
- */
-export function signedInByEmail(accessToken: string | undefined): boolean {
-  try {
-    const part = (accessToken ?? '').split('.')[1] ?? ''
-    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='))
-    const amr = (JSON.parse(json) as { amr?: { method?: string }[] }).amr ?? []
-    return amr.some((m) => m.method === 'otp' || m.method === 'magiclink')
-  } catch {
-    return false
-  }
-}
-
-export function isHibaVerified(user: { user_metadata?: Record<string, unknown> } | null) {
-  return Boolean(user?.user_metadata?.hiba_verified)
-}
-
-export async function sendPostGoogleOtp(email: string) {
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    // If the email template sends a link instead of a code, the link comes back here.
-    options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/auth/callback` },
-  })
-  if (error) throw error
-}
-
-export async function verifyPostGoogleOtp(email: string, token: string) {
-  const { data, error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
-  if (error) throw error
-  return data
-}
-
-export async function markUserVerified() {
-  const { error } = await supabase.auth.updateUser({ data: { hiba_verified: true } })
-  if (error) throw error
 }
