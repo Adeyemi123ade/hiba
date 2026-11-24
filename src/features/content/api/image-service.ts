@@ -14,7 +14,7 @@ export interface PostImageItem {
   alt: string | null
 }
 
-export type ImageErrorCode = 'type' | 'size' | 'count' | 'offline' | 'upload' | 'save' | 'session' | 'in_use'
+export type ImageErrorCode = 'type' | 'size' | 'count' | 'offline' | 'upload' | 'save' | 'session' | 'in_use' | 'unreadable'
 
 export const IMAGE_ERROR_TEXT: Record<ImageErrorCode, string> = {
   type: 'Please choose JPG, PNG or GIF images.',
@@ -25,6 +25,7 @@ export const IMAGE_ERROR_TEXT: Record<ImageErrorCode, string> = {
   save: 'The change could not be saved to the post. Please try again.',
   session: 'Your session expired. Sign in again, then try again.',
   in_use: 'This image is on a scheduled post. Change or cancel that post first.',
+  unreadable: 'This image could not be opened. Please choose a different one.',
 }
 
 export class ImageError extends Error {
@@ -60,7 +61,54 @@ async function saveList(postId: string, images: PostImageItem[]): Promise<void> 
   if (error) throw new ImageError(offline() ? 'offline' : /jwt/i.test(error.message) ? 'session' : 'save')
 }
 
-async function upload(userId: string, file: File): Promise<string> {
+/** HPD-165 (owner, 24 Nov 2026): every post image is portrait 1080 × 1350, so LinkedIn shows it large. */
+export const POST_IMAGE_WIDTH = 1080
+export const POST_IMAGE_HEIGHT = 1350
+
+/** The centre part of a w × h image that has the post shape. */
+export function centreCrop(w: number, h: number, outW = POST_IMAGE_WIDTH, outH = POST_IMAGE_HEIGHT) {
+  const target = outW / outH
+  if (w / h > target) {
+    const sw = Math.round(h * target)
+    return { sx: Math.round((w - sw) / 2), sy: 0, sw, sh: h }
+  }
+  const sh = Math.round(w / target)
+  return { sx: 0, sy: Math.round((h - sh) / 2), sw: w, sh }
+}
+
+/**
+ * Trims the image from the centre to the post shape and saves it at exactly 1080 × 1350 as a JPEG.
+ * GIFs are kept as they are, because redrawing one would stop its animation.
+ */
+export async function toPostSize(file: File): Promise<File> {
+  if (file.type === 'image/gif') return file
+  let bitmap: ImageBitmap
+  try {
+    bitmap = await createImageBitmap(file)
+  } catch {
+    throw new ImageError('unreadable')
+  }
+  try {
+    const { sx, sy, sw, sh } = centreCrop(bitmap.width, bitmap.height)
+    const canvas = document.createElement('canvas')
+    canvas.width = POST_IMAGE_WIDTH
+    canvas.height = POST_IMAGE_HEIGHT
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new ImageError('unreadable')
+    ctx.fillStyle = '#ffffff' // see-through parts of a PNG become white, not black
+    ctx.fillRect(0, 0, POST_IMAGE_WIDTH, POST_IMAGE_HEIGHT)
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, POST_IMAGE_WIDTH, POST_IMAGE_HEIGHT)
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.92))
+    if (!blob) throw new ImageError('unreadable')
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } finally {
+    bitmap.close()
+  }
+}
+
+async function upload(userId: string, original: File): Promise<string> {
+  const file = await toPostSize(original)
   const path = `${userId}/${crypto.randomUUID()}.${TYPES[file.type]}`
   const { error } = await supabase.storage
     .from(IMAGE_BUCKET)
