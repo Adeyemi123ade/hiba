@@ -1,14 +1,27 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import {
   isHibaVerified,
+  signedInByEmail,
   sendPostGoogleOtp,
   verifyPostGoogleOtp,
   markUserVerified,
 } from '@/features/auth/api/auth-service'
 
 type Status = 'loading' | 'needs-otp' | 'error'
+
+/** An error Supabase sent back in the address (query or #fragment), in plain words. */
+function errorFromAddress(): string | null {
+  const params = new URLSearchParams(window.location.search)
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const code = params.get('error') ?? hash.get('error')
+  if (!code) return null
+  const detail = (params.get('error_description') ?? hash.get('error_description') ?? '').replace(/\+/g, ' ')
+  if (/expired|invalid/i.test(detail)) return 'That sign-in link has expired or was already used. Please sign in again.'
+  if (code === 'access_denied') return 'Google sign-in was cancelled. You can try again or use your email and password.'
+  return 'Sign-in did not complete. Please try again.'
+}
 
 /**
  * Google Sign-In → Select Account → Verification Code (first-time only) → Dashboard.
@@ -24,11 +37,18 @@ export function AuthCallbackPage() {
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
 
+  // Runs once per visit: a second run would email a second code.
+  const started = useRef(false)
+
   useEffect(() => {
+    if (started.current) return
+    started.current = true
+    // Read before the session check: Supabase may clear the address while signing in.
+    const addressError = errorFromAddress()
     async function run() {
       const { data, error } = await supabase.auth.getSession()
-      if (error || !data.session) {
-        setError(error?.message ?? 'Sign-in did not complete. Please try again.')
+      if (addressError || error || !data.session) {
+        setError(addressError ?? 'Sign-in did not complete. Please try again.')
         setStatus('error')
         return
       }
@@ -36,6 +56,17 @@ export function AuthCallbackPage() {
       const user = data.session.user
 
       if (isHibaVerified(user)) {
+        navigate('/dashboard/home', { replace: true })
+        return
+      }
+
+      // Came back from the emailed link (not Google): the email is proven, so record it and continue.
+      if (signedInByEmail(data.session.access_token)) {
+        try {
+          await markUserVerified()
+        } catch {
+          // Not fatal: they are signed in; the code step simply appears again next time.
+        }
         navigate('/dashboard/home', { replace: true })
         return
       }
@@ -69,8 +100,11 @@ export function AuthCallbackPage() {
 
   if (status === 'error') {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg-cream)]">
-        <p className="text-[var(--color-error)]">{error}</p>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-bg-cream)] px-4 text-center">
+        <p role="alert" className="max-w-sm text-red-700">{error}</p>
+        <Link to="/auth" replace className="rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-4 py-2 text-sm font-semibold text-white">
+          Back to sign in
+        </Link>
       </div>
     )
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { RegisterForm } from '@/features/auth/components/register-form'
 import { LoginForm } from '@/features/auth/components/login-form'
@@ -8,6 +8,7 @@ import { ResetPasswordForm } from '@/features/auth/components/reset-password-for
 import { GoogleSignInButton } from '@/features/auth/components/google-signin-button'
 import { resendRegistrationOtp } from '@/features/auth/api/auth-service'
 import { authLink } from '@/features/auth/components/auth-ui'
+import { useSession } from '@/features/auth/use-session'
 
 type Mode = 'register' | 'login' | 'otp' | 'forgot' | 'reset'
 
@@ -36,6 +37,17 @@ export function AuthPage() {
     if (typeof arrivedWith === 'string') setNotice(arrivedWith)
   }, [arrivedWith])
   const navigate = useNavigate()
+
+  // Already signed in when this page opens (for example after Google, or an email link that came
+  // back to the site's main address): continue through the sign-in check instead of showing the form.
+  // Checked once, on arrival only, so a password reset (which signs in part-way) is never cut short.
+  const { session, isLoading } = useSession()
+  const arrivalChecked = useRef(false)
+  useEffect(() => {
+    if (isLoading || arrivalChecked.current) return
+    arrivalChecked.current = true
+    if (session) navigate('/auth/callback', { replace: true })
+  }, [isLoading, session, navigate])
 
   function go(next: Mode, nextEmail = email) {
     setEmail(nextEmail)
