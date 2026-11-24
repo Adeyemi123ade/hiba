@@ -6,8 +6,8 @@ export const LINKEDIN_TIMEOUT_MS = 20_000
 export const IMAGE_BUCKET = 'post-images'
 export const IMAGE_MAX_BYTES = 5 * 1024 * 1024
 export const IMAGE_MAX_COUNT = 9
-/** Owner rule: LinkedIn posts are at most 200 words (LinkedIn itself allows 3000 characters). */
-export const postTooLong = (text: string) => text.length > 3000 || text.split(/\s+/).length > 200
+/** Owner rule (24 Nov 2026, HPD-164): LinkedIn posts are at most 300 words (LinkedIn itself allows 3000 characters). */
+export const postTooLong = (text: string) => text.length > 3000 || text.trim().split(/\s+/).length > 300
 
 // ---------- encryption (AES-GCM, key = 32 random bytes, base64) ----------
 export const b64 = {

@@ -159,7 +159,7 @@ async function publishPost(db: Db, key: CryptoKey, post: any) {
 
   const text = String(post.body ?? '').trim()
   if (!text) return finish('failed', 'The post is empty, so nothing was posted.')
-  if (postTooLong(text)) return finish('failed', 'The post is longer than 200 words, so nothing was posted. Shorten it and schedule it again.')
+  if (postTooLong(text)) return finish('failed', 'The post is longer than 300 words, so nothing was posted. Shorten it and schedule it again.')
 
   const access = await accessFor(db, key, post.user_id)
   if ('reason' in access) return finish('failed', access.reason)

@@ -52,16 +52,16 @@ export interface IdeaWithPosts {
 
 export const IDEA_MAX = 2000
 export const PLATFORMS: { id: Platform; name: string; limit: number; maxWords: number }[] = [
-  { id: 'linkedin', name: 'LinkedIn', limit: 3000, maxWords: 200 },
-  { id: 'x', name: 'X thread', limit: 280, maxWords: 100 },
-  { id: 'substack', name: 'Substack', limit: 20000, maxWords: 1500 },
+  { id: 'linkedin', name: 'LinkedIn', limit: 3000, maxWords: 300 },
+  { id: 'x', name: 'X thread', limit: 280, maxWords: 150 },
+  { id: 'substack', name: 'Substack', limit: 30000, maxWords: 3000 },
 ]
 
 export const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
 
 /**
- * Length rules (owner, 17 Nov 2026): LinkedIn at most 200 words, X at most 100 words in total and
- * 280 characters per post (X's own rule), Substack at most 1500 words. `warning` is set when the
+ * Length rules (owner, 24 Nov 2026, HPD-164): LinkedIn at most 300 words, X at most 150 words in total and
+ * 280 characters per post (X's own rule), Substack at most 3000 words. `warning` is set when the
  * draft breaks a rule; such a draft cannot be approved until it is shortened.
  */
 export function lengthCheck(platform: Platform, body: string): { text: string; warning: string | null } {
