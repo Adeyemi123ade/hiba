@@ -65,20 +65,26 @@ async function saveList(postId: string, images: PostImageItem[]): Promise<void> 
 export const POST_IMAGE_WIDTH = 1080
 export const POST_IMAGE_HEIGHT = 1350
 
-/** The centre part of a w × h image that has the post shape. */
-export function centreCrop(w: number, h: number, outW = POST_IMAGE_WIDTH, outH = POST_IMAGE_HEIGHT) {
-  const target = outW / outH
-  if (w / h > target) {
-    const sw = Math.round(h * target)
-    return { sx: Math.round((w - sw) / 2), sy: 0, sw, sh: h }
-  }
-  const sh = Math.round(w / target)
-  return { sx: 0, sy: Math.round((h - sh) / 2), sw: w, sh }
+/** Where the whole w × h image sits inside the frame: as large as possible, centred, nothing cut. */
+export function fitInside(w: number, h: number, outW = POST_IMAGE_WIDTH, outH = POST_IMAGE_HEIGHT) {
+  const scale = Math.min(outW / w, outH / h)
+  const dw = Math.round(w * scale)
+  const dh = Math.round(h * scale)
+  return { dx: Math.round((outW - dw) / 2), dy: Math.round((outH - dh) / 2), dw, dh }
+}
+
+/** Where a copy of the image goes so that it covers the whole frame (used blurred, behind). */
+export function coverFrame(w: number, h: number, outW = POST_IMAGE_WIDTH, outH = POST_IMAGE_HEIGHT) {
+  const scale = Math.max(outW / w, outH / h)
+  const dw = Math.round(w * scale)
+  const dh = Math.round(h * scale)
+  return { dx: Math.round((outW - dw) / 2), dy: Math.round((outH - dh) / 2), dw, dh }
 }
 
 /**
- * Trims the image from the centre to the post shape and saves it at exactly 1080 × 1350 as a JPEG.
- * GIFs are kept as they are, because redrawing one would stop its animation.
+ * Saves the image at exactly 1080 × 1350 as a JPEG without cutting anything off: the whole
+ * picture sits in the middle, and any space around it is filled with a soft, blurred copy of
+ * the same picture instead of empty bars. GIFs are kept as they are (redrawing stops the animation).
  */
 export async function toPostSize(file: File): Promise<File> {
   if (file.type === 'image/gif') return file
@@ -89,16 +95,40 @@ export async function toPostSize(file: File): Promise<File> {
     throw new ImageError('unreadable')
   }
   try {
-    const { sx, sy, sw, sh } = centreCrop(bitmap.width, bitmap.height)
+    const W = POST_IMAGE_WIDTH
+    const H = POST_IMAGE_HEIGHT
     const canvas = document.createElement('canvas')
-    canvas.width = POST_IMAGE_WIDTH
-    canvas.height = POST_IMAGE_HEIGHT
+    canvas.width = W
+    canvas.height = H
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new ImageError('unreadable')
     ctx.fillStyle = '#ffffff' // see-through parts of a PNG become white, not black
-    ctx.fillRect(0, 0, POST_IMAGE_WIDTH, POST_IMAGE_HEIGHT)
+    ctx.fillRect(0, 0, W, H)
+
+    const fit = fitInside(bitmap.width, bitmap.height)
+    if (fit.dw < W || fit.dh < H) {
+      // Background: the picture shrunk to a tiny size and stretched back up, which blurs it in
+      // every browser (canvas blur filters are missing in some). Slightly darkened so the photo stands out.
+      const cover = coverFrame(bitmap.width, bitmap.height)
+      const small = document.createElement('canvas')
+      small.width = 36
+      small.height = 45
+      const sctx = small.getContext('2d')
+      if (sctx) {
+        sctx.fillStyle = '#ffffff'
+        sctx.fillRect(0, 0, small.width, small.height)
+        const k = small.width / W
+        sctx.drawImage(bitmap, cover.dx * k, cover.dy * k, cover.dw * k, cover.dh * k)
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(small, 0, 0, W, H)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
+        ctx.fillRect(0, 0, W, H)
+      }
+    }
     ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, POST_IMAGE_WIDTH, POST_IMAGE_HEIGHT)
+    ctx.drawImage(bitmap, fit.dx, fit.dy, fit.dw, fit.dh)
+
     const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.92))
     if (!blob) throw new ImageError('unreadable')
     return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })

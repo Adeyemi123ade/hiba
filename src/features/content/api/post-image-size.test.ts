@@ -1,19 +1,37 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/supabase', () => ({ supabase: {} }))
-import { centreCrop } from './image-service'
+import { coverFrame, fitInside } from './image-service'
 
-describe('post images are 1080 × 1350 (owner, 24 Nov 2026)', () => {
-  it('a wide photo keeps its middle, full height', () => {
-    expect(centreCrop(4000, 3000)).toEqual({ sx: 800, sy: 0, sw: 2400, sh: 3000 })
+const W = 1080
+const H = 1350
+
+describe('post images are 1080 × 1350 with nothing cut off (owner, 24 Nov 2026)', () => {
+  const shapes: [number, number][] = [[4000, 3000], [1080, 1920], [1000, 1000], [2160, 2700], [500, 300], [300, 4000]]
+
+  it.each(shapes)('a %i × %i image is shown whole, inside the frame', (w, h) => {
+    const f = fitInside(w, h)
+    expect(f.dx).toBeGreaterThanOrEqual(0)
+    expect(f.dy).toBeGreaterThanOrEqual(0)
+    expect(f.dx + f.dw).toBeLessThanOrEqual(W)
+    expect(f.dy + f.dh).toBeLessThanOrEqual(H)
+    expect(f.dw === W || f.dh === H).toBe(true) // as large as it can be
+    expect(Math.abs(f.dw / f.dh - w / h)).toBeLessThan(0.01) // not squashed or stretched
   })
-  it('a tall phone photo keeps its middle, full width', () => {
-    expect(centreCrop(1080, 1920)).toEqual({ sx: 0, sy: 285, sw: 1080, sh: 1350 })
+
+  it('an image already 4:5 fills the frame exactly', () => {
+    expect(fitInside(2160, 2700)).toEqual({ dx: 0, dy: 0, dw: W, dh: H })
   })
-  it('an image already 4:5 is not trimmed', () => {
-    expect(centreCrop(2160, 2700)).toEqual({ sx: 0, sy: 0, sw: 2160, sh: 2700 })
+
+  it('a wide photo sits in the middle, full width', () => {
+    expect(fitInside(4000, 3000)).toEqual({ dx: 0, dy: 270, dw: W, dh: 810 })
   })
-  it('a square image loses a little from each side', () => {
-    expect(centreCrop(1000, 1000)).toEqual({ sx: 100, sy: 0, sw: 800, sh: 1000 })
+
+  it.each(shapes)('the blurred background for %i × %i covers the whole frame', (w, h) => {
+    const c = coverFrame(w, h)
+    expect(c.dx).toBeLessThanOrEqual(0)
+    expect(c.dy).toBeLessThanOrEqual(0)
+    expect(c.dx + c.dw).toBeGreaterThanOrEqual(W)
+    expect(c.dy + c.dh).toBeGreaterThanOrEqual(H)
   })
 })
