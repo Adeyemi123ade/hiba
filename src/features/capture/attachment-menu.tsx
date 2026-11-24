@@ -54,11 +54,13 @@ export function AttachmentMenu({ enabled, disabled, onChoose }: {
 
   return (
     <div ref={wrap} className="relative">
-      <button ref={button} type="button" aria-label="Add attachment" aria-haspopup="menu" aria-expanded={open}
+      {/* HPD-166 (owner, 24 Nov 2026): the words show next to the paperclip, so it is clear what it does. */}
+      <button ref={button} type="button" aria-haspopup="menu" aria-expanded={open}
         disabled={disabled} onClick={() => setOpen((o) => !o)}
-        className={clsx('flex h-9 w-9 items-center justify-center rounded-full text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-light-green)] hover:text-[var(--color-primary-dark)]',
+        className={clsx('flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-light-green)] hover:text-[var(--color-primary-dark)]',
           'disabled:cursor-not-allowed disabled:opacity-40', open && 'bg-[var(--color-bg-light-green)] text-[var(--color-primary-dark)]')}>
-        <Paperclip size={20} aria-hidden="true" />
+        <Paperclip size={18} aria-hidden="true" />
+        Add attachment
       </button>
       {open && (
         <div role="menu" aria-label="Add attachment"
