@@ -28,7 +28,7 @@ export const PRIVACY: LegalSection[] = [
   ]],
   ['9. Your rights', [
     'You can access, correct, export or delete your information, object to or restrict its use, and withdraw consent at any time.',
-    'You can correct your details in Settings, and delete your account in Settings under Delete account. For a copy of your data, or any other request, email us and we will reply within 30 days. You may also complain to your data protection authority.',
+    'You can correct your details in Settings, download a copy of your data in Settings under Download your data, and delete your account in Settings under Delete account. For any other request, email us and we will reply within 30 days. You may also complain to your data protection authority.',
   ]],
   ['10. Cookies and browser storage', [
     'We use essential browser storage to keep you signed in and to keep unsaved drafts on your device.',
