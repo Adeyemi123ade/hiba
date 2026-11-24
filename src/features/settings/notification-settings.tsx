@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card'
 import { useSession } from '@/features/auth/use-session'
 import { useOnline } from '@/features/onboarding/use-online'
 import { fetchNotifyPrefs, saveNotifyPrefs, type NotifyPrefs } from '@/features/notifications/notifications-service'
+import { showSuccess } from '@/components/ui/show-success'
 
 const CHOICES: { key: keyof NotifyPrefs; label: string }[] = [
   { key: 'review', label: 'Drafts ready for review' },
@@ -28,6 +29,7 @@ export function NotificationSettings() {
     queryClient.setQueryData(key, next)
     try {
       await saveNotifyPrefs(userId, next)
+      showSuccess('Saved.')
     } catch {
       queryClient.setQueryData(key, prefs.data)
       setProblem(navigator.onLine ? 'We could not save that.' : 'You are offline. Check your network connection and try again.')
