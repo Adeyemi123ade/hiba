@@ -14,7 +14,7 @@ export interface PostImageItem {
   alt: string | null
 }
 
-export type ImageErrorCode = 'type' | 'size' | 'count' | 'offline' | 'upload' | 'save' | 'session' | 'in_use'
+export type ImageErrorCode = 'type' | 'size' | 'count' | 'offline' | 'upload' | 'save' | 'session' | 'in_use' | 'unreadable'
 
 export const IMAGE_ERROR_TEXT: Record<ImageErrorCode, string> = {
   type: 'Please choose JPG, PNG or GIF images.',
@@ -25,6 +25,7 @@ export const IMAGE_ERROR_TEXT: Record<ImageErrorCode, string> = {
   save: 'The change could not be saved to the post. Please try again.',
   session: 'Your session expired. Sign in again, then try again.',
   in_use: 'This image is on a scheduled post. Change or cancel that post first.',
+  unreadable: 'This image could not be opened. Please choose a different one.',
 }
 
 export class ImageError extends Error {
@@ -60,7 +61,84 @@ async function saveList(postId: string, images: PostImageItem[]): Promise<void> 
   if (error) throw new ImageError(offline() ? 'offline' : /jwt/i.test(error.message) ? 'session' : 'save')
 }
 
-async function upload(userId: string, file: File): Promise<string> {
+/** HPD-165 (owner, 24 Nov 2026): every post image is portrait 1080 × 1350, so LinkedIn shows it large. */
+export const POST_IMAGE_WIDTH = 1080
+export const POST_IMAGE_HEIGHT = 1350
+
+/** Where the whole w × h image sits inside the frame: as large as possible, centred, nothing cut. */
+export function fitInside(w: number, h: number, outW = POST_IMAGE_WIDTH, outH = POST_IMAGE_HEIGHT) {
+  const scale = Math.min(outW / w, outH / h)
+  const dw = Math.round(w * scale)
+  const dh = Math.round(h * scale)
+  return { dx: Math.round((outW - dw) / 2), dy: Math.round((outH - dh) / 2), dw, dh }
+}
+
+/** Where a copy of the image goes so that it covers the whole frame (used blurred, behind). */
+export function coverFrame(w: number, h: number, outW = POST_IMAGE_WIDTH, outH = POST_IMAGE_HEIGHT) {
+  const scale = Math.max(outW / w, outH / h)
+  const dw = Math.round(w * scale)
+  const dh = Math.round(h * scale)
+  return { dx: Math.round((outW - dw) / 2), dy: Math.round((outH - dh) / 2), dw, dh }
+}
+
+/**
+ * Saves the image at exactly 1080 × 1350 as a JPEG without cutting anything off: the whole
+ * picture sits in the middle, and any space around it is filled with a soft, blurred copy of
+ * the same picture instead of empty bars. GIFs are kept as they are (redrawing stops the animation).
+ */
+export async function toPostSize(file: File): Promise<File> {
+  if (file.type === 'image/gif') return file
+  let bitmap: ImageBitmap
+  try {
+    bitmap = await createImageBitmap(file)
+  } catch {
+    throw new ImageError('unreadable')
+  }
+  try {
+    const W = POST_IMAGE_WIDTH
+    const H = POST_IMAGE_HEIGHT
+    const canvas = document.createElement('canvas')
+    canvas.width = W
+    canvas.height = H
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new ImageError('unreadable')
+    ctx.fillStyle = '#ffffff' // see-through parts of a PNG become white, not black
+    ctx.fillRect(0, 0, W, H)
+
+    const fit = fitInside(bitmap.width, bitmap.height)
+    if (fit.dw < W || fit.dh < H) {
+      // Background: the picture shrunk to a tiny size and stretched back up, which blurs it in
+      // every browser (canvas blur filters are missing in some). Slightly darkened so the photo stands out.
+      const cover = coverFrame(bitmap.width, bitmap.height)
+      const small = document.createElement('canvas')
+      small.width = 36
+      small.height = 45
+      const sctx = small.getContext('2d')
+      if (sctx) {
+        sctx.fillStyle = '#ffffff'
+        sctx.fillRect(0, 0, small.width, small.height)
+        const k = small.width / W
+        sctx.drawImage(bitmap, cover.dx * k, cover.dy * k, cover.dw * k, cover.dh * k)
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(small, 0, 0, W, H)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)'
+        ctx.fillRect(0, 0, W, H)
+      }
+    }
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(bitmap, fit.dx, fit.dy, fit.dw, fit.dh)
+
+    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.92))
+    if (!blob) throw new ImageError('unreadable')
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } finally {
+    bitmap.close()
+  }
+}
+
+async function upload(userId: string, original: File): Promise<string> {
+  const file = await toPostSize(original)
   const path = `${userId}/${crypto.randomUUID()}.${TYPES[file.type]}`
   const { error } = await supabase.storage
     .from(IMAGE_BUCKET)
