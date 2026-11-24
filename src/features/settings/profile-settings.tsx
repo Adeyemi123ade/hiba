@@ -3,6 +3,7 @@ import { useBlocker } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, Loader2, Pencil } from 'lucide-react'
 import { Card, SkeletonCard } from '@/components/ui/card'
+import { Modal } from '@/components/ui/modal'
 import { Banner } from '@/components/ui/banner'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { useSession } from '@/features/auth/use-session'
@@ -170,17 +171,15 @@ export function ProfileSettings() {
       {!online && <Banner tone="warning">You are offline. Check your network connection and try again.</Banner>}
 
       {blocker.state === 'blocked' && (
-        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-          <div role="alertdialog" aria-modal="true" aria-labelledby="settings-leave"
-            className="w-full max-w-sm rounded-[var(--radius-lg)] bg-[var(--color-surface)] p-5 shadow-xl">
-            <h2 id="settings-leave" className="text-lg font-semibold text-[var(--color-text-primary)]">You have an unsaved change</h2>
-            <p className="mt-2 text-sm text-[var(--color-text-secondary)]">It stays in this tab if you leave, but it is not saved to your profile.</p>
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <button type="button" className={outlineBtn} onClick={() => blocker.reset?.()}>Stay</button>
-              <button type="button" className={primaryBtn} onClick={() => blocker.proceed?.()}>Leave anyway</button>
-            </div>
+        <Modal role="alertdialog" labelledBy="settings-leave" onClose={() => blocker.reset?.()}
+          className="w-full max-w-sm rounded-[var(--radius-lg)] bg-[var(--color-surface)] p-5 shadow-xl">
+          <h2 id="settings-leave" className="text-lg font-semibold text-[var(--color-text-primary)]">You have an unsaved change</h2>
+          <p className="mt-2 text-sm text-[var(--color-text-secondary)]">It stays in this tab if you leave, but it is not saved to your profile.</p>
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <button type="button" className={outlineBtn} onClick={() => blocker.reset?.()}>Stay</button>
+            <button type="button" className={primaryBtn} onClick={() => blocker.proceed?.()}>Leave anyway</button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {GROUPS.map((group) => (

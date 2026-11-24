@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Loader2, X } from 'lucide-react'
 import { clsx } from 'clsx'
+import { Modal } from '@/components/ui/modal'
 import { getLocalFile, type LocalImage } from '@/lib/local-images'
 
 const LONG_PRESS_MS = 450
@@ -116,15 +117,10 @@ export function ImagePreview({ image, onClose }: { image: LocalImage; onClose: (
     return () => { cancelled = true; if (made) URL.revokeObjectURL(made) }
   }, [image.id])
 
-  useEffect(() => {
-    closeBtn.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEffect(() => closeBtn.current?.focus(), [])
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Image" className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-2" onClick={onClose}>
+    <Modal label="Image" onClose={onClose} closeOnBackdrop backdrop="dark" className="contents">
       <button ref={closeBtn} type="button" onClick={onClose} aria-label="Close"
         className="absolute right-3 top-3 rounded-full bg-black/50 p-2 text-white"><X size={22} /></button>
       {url ? (
@@ -134,6 +130,6 @@ export function ImagePreview({ image, onClose }: { image: LocalImage; onClose: (
       ) : (
         <Loader2 size={28} className="animate-spin text-white" aria-label="Loading image" />
       )}
-    </div>
+    </Modal>
   )
 }

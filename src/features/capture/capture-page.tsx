@@ -9,6 +9,7 @@ import { useOnline } from '@/features/onboarding/use-online'
 import { useSpeechInput } from '@/features/onboarding/use-speech-input'
 import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
+import { Modal } from '@/components/ui/modal'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { RewriteBox, VersionHistory } from '@/features/capture/rewrite-and-versions'
 import { LinkedInPublishPanel } from '@/features/linkedin/linkedin-components'
@@ -536,19 +537,17 @@ export function CapturePage() {
   )
 
   const leaveDialog = blocker.state === 'blocked' && (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-      <div role="alertdialog" aria-modal="true" aria-labelledby="leave-title"
-        className="w-full max-w-sm rounded-[var(--radius-lg)] bg-[var(--color-surface)] p-5 shadow-xl">
-        <h2 id="leave-title" className="text-lg font-semibold text-[var(--color-text-primary)]">Your latest changes are not saved</h2>
-        <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
-          If you leave now, your most recent edit to this draft may be lost.
-        </p>
-        <div className="mt-4 flex flex-wrap justify-end gap-2">
-          <button type="button" className={outlineBtn} onClick={() => blocker.reset?.()}>Stay and try again</button>
-          <button type="button" className={primaryBtn} onClick={() => blocker.proceed?.()}>Leave anyway</button>
-        </div>
+    <Modal role="alertdialog" labelledBy="leave-title" onClose={() => blocker.reset?.()}
+      className="w-full max-w-sm rounded-[var(--radius-lg)] bg-[var(--color-surface)] p-5 shadow-xl">
+      <h2 id="leave-title" className="text-lg font-semibold text-[var(--color-text-primary)]">Your latest changes are not saved</h2>
+      <p className="mt-2 text-sm text-[var(--color-text-secondary)]">
+        If you leave now, your most recent edit to this draft may be lost.
+      </p>
+      <div className="mt-4 flex flex-wrap justify-end gap-2">
+        <button type="button" className={outlineBtn} onClick={() => blocker.reset?.()}>Stay and try again</button>
+        <button type="button" className={primaryBtn} onClick={() => blocker.proceed?.()}>Leave anyway</button>
       </div>
-    </div>
+    </Modal>
   )
 
   if (phase === 'loading') {

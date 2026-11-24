@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
+import { Modal } from '@/components/ui/modal'
 import { getLocalFile } from '@/lib/local-images'
 import { Gallery } from '@/features/images/gallery'
 import { NO_SELECTION, tap, type Selection } from '@/features/images/selection'
@@ -32,10 +33,7 @@ export function ImagePickerDialog({ userId, open, max, onClose, onPick }: {
     setFull(false)
     setFailed(false)
     closeBtn.current?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
   const images = library.data ?? []
@@ -62,37 +60,35 @@ export function ImagePickerDialog({ userId, open, max, onClose, onPick }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="picker-title" onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-t-[var(--radius-lg)] bg-[var(--color-surface)] p-4 sm:rounded-[var(--radius-lg)]">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 id="picker-title" className="text-lg font-semibold text-[var(--color-text-primary)]">Choose from library</h2>
-          <button ref={closeBtn} type="button" onClick={onClose} aria-label="Close" className="rounded p-1"><X size={20} /></button>
-        </div>
-        <p className="mb-3 text-sm text-[var(--color-text-secondary)]" aria-live="polite">
-          {full ? `This post can take ${max} more image${max === 1 ? '' : 's'}.` : count ? `${count} selected` : 'Tap the images you want.'}
-        </p>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {library.isLoading && <p className="text-sm text-[var(--color-text-secondary)]">Loading your images...</p>}
-          {library.isError && <p role="alert" className="text-sm text-[var(--color-error)]">Your images could not be loaded on this device.</p>}
-          {library.isSuccess && !images.length && (
-            <p className="text-sm text-[var(--color-text-secondary)]">
-              Your library on this device is empty. Close this and use Choose from device instead.
-            </p>
-          )}
-          <Gallery images={images} urls={urls} selectedIds={selection.ids} selecting
-            onTap={choose}
-            // A long press here selects too (and stops the phone's own "save image" menu).
-            onLongPress={choose} />
-        </div>
-        {failed && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">The images could not be added to the post. Please try again.</p>}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className={primaryBtn} disabled={!count || busy} onClick={use}>
-            {busy ? 'Adding...' : count ? `Use selected (${count})` : 'Use selected'}
-          </button>
-          <button type="button" className={outlineBtn} onClick={onClose} disabled={busy}>Cancel</button>
-        </div>
+    <Modal labelledBy="picker-title" onClose={onClose} canClose={!busy} closeOnBackdrop placement="sheet"
+      className="flex max-h-[90dvh] w-full max-w-2xl flex-col rounded-t-[var(--radius-lg)] bg-[var(--color-surface)] p-4 sm:rounded-[var(--radius-lg)]">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 id="picker-title" className="text-lg font-semibold text-[var(--color-text-primary)]">Choose from library</h2>
+        <button ref={closeBtn} type="button" onClick={onClose} aria-label="Close" className="rounded p-1"><X size={20} /></button>
       </div>
-    </div>
+      <p className="mb-3 text-sm text-[var(--color-text-secondary)]" aria-live="polite">
+        {full ? `This post can take ${max} more image${max === 1 ? '' : 's'}.` : count ? `${count} selected` : 'Tap the images you want.'}
+      </p>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {library.isLoading && <p className="text-sm text-[var(--color-text-secondary)]">Loading your images...</p>}
+        {library.isError && <p role="alert" className="text-sm text-[var(--color-error)]">Your images could not be loaded on this device.</p>}
+        {library.isSuccess && !images.length && (
+          <p className="text-sm text-[var(--color-text-secondary)]">
+            Your library on this device is empty. Close this and use Choose from device instead.
+          </p>
+        )}
+        <Gallery images={images} urls={urls} selectedIds={selection.ids} selecting
+          onTap={choose}
+          // A long press here selects too (and stops the phone's own "save image" menu).
+          onLongPress={choose} />
+      </div>
+      {failed && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">The images could not be added to the post. Please try again.</p>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className={primaryBtn} disabled={!count || busy} onClick={use}>
+          {busy ? 'Adding...' : count ? `Use selected (${count})` : 'Use selected'}
+        </button>
+        <button type="button" className={outlineBtn} onClick={onClose} disabled={busy}>Cancel</button>
+      </div>
+    </Modal>
   )
 }
