@@ -47,9 +47,6 @@ export function AuthCallbackPage() {
   // Runs once per visit: a second run would email a second code.
   const started = useRef(false)
 
-  // Runs once per visit: a second run would email a second code.
-  const started = useRef(false)
-
   useEffect(() => {
     if (started.current) return
     started.current = true
