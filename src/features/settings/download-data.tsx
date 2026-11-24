@@ -3,7 +3,9 @@ import { Download } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { useSession } from '@/features/auth/use-session'
 import { useOnline } from '@/features/onboarding/use-online'
-import { EXPORT_ERROR_TEXT, ExportError, sendMyDataByEmail, type ExportErrorCode } from '@/features/settings/data-export'
+import {
+  ExportError, checkCanRequestData, exportErrorText, sendMyDataByEmail, type ExportErrorCode,
+} from '@/features/settings/data-export'
 
 type Step = 'start' | 'confirm' | 'email' | 'sent'
 
@@ -13,6 +15,7 @@ const secondary = 'whitespace-nowrap rounded-[var(--radius-sm)] border border-[v
 /**
  * HPD-159 (owner, 24 Nov 2026): Download my data, then confirm, then type your sign-in email.
  * The copy is sent to that email as a private link that works for 7 days. Nothing downloads here.
+ * Once every 3 days: checked as soon as the button is pressed.
  */
 export function DownloadData() {
   const user = useSession().session?.user
@@ -20,7 +23,21 @@ export function DownloadData() {
   const [step, setStep] = useState<Step>('start')
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<ExportErrorCode | null>(null)
+  const [error, setError] = useState<{ code: ExportErrorCode; nextAt: string | null } | null>(null)
+  const showError = (e: unknown) => setError(e instanceof ExportError ? { code: e.code, nextAt: e.nextAt } : { code: 'failed', nextAt: null })
+
+  async function start() {
+    setBusy(true)
+    setError(null)
+    try {
+      await checkCanRequestData()
+      setStep('confirm')
+    } catch (e) {
+      showError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   function cancel() {
     setStep('start')
@@ -37,7 +54,7 @@ export function DownloadData() {
       setStep('sent')
       setTyped('')
     } catch (e) {
-      setError(e instanceof ExportError ? e.code : 'failed')
+      showError(e)
     } finally {
       setBusy(false)
     }
@@ -52,11 +69,15 @@ export function DownloadData() {
       </p>
 
       {step === 'start' && (
-        <button type="button" onClick={() => { setStep('confirm'); setError(null) }} disabled={!user}
-          className={`mt-3 inline-flex items-center gap-2 ${secondary}`}>
-          <Download size={16} aria-hidden="true" />
-          Download my data
-        </button>
+        <>
+          <button type="button" onClick={() => void start()} disabled={!user || busy || !online}
+            className={`mt-3 inline-flex items-center gap-2 ${secondary}`}>
+            <Download size={16} aria-hidden="true" />
+            {busy ? 'Checking...' : 'Download my data'}
+          </button>
+          {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{exportErrorText(error.code, error.nextAt)}</p>}
+          {!online && <p className="mt-2 text-sm text-[var(--color-text-secondary)]">You are offline. Check your network connection and try again.</p>}
+        </>
       )}
 
       {step === 'confirm' && (
@@ -80,7 +101,7 @@ export function DownloadData() {
             onChange={(e) => { setTyped(e.target.value); setError(null) }}
             className="mt-1 h-11 w-full max-w-sm rounded-[var(--radius-sm)] border border-[var(--color-border)] px-3 text-sm" />
           <p className="mt-1 text-xs text-[var(--color-text-secondary)]">Use the email you sign in with. We only send it there.</p>
-          {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{EXPORT_ERROR_TEXT[error]}</p>}
+          {error && <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">{exportErrorText(error.code, error.nextAt)}</p>}
           {!online && !error && <p className="mt-2 text-sm text-[var(--color-text-secondary)]">You are offline. Check your network connection and try again.</p>}
           <div className="mt-3 flex gap-2">
             <button type="submit" disabled={busy || !online || !typed.trim()} className={primary}>

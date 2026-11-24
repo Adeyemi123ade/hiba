@@ -4,7 +4,7 @@ import { unzipSync, strFromU8 } from 'fflate'
 const selects: { table: string; columns: string; filter: [string, string] }[] = []
 const ROWS: Record<string, Record<string, unknown>[]> = {}
 const calls: string[] = []
-let invokeResult: { error: unknown } = { error: null }
+let invokeResult: { error: unknown; data?: unknown } = { error: null }
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -30,8 +30,8 @@ vi.mock('@/lib/supabase', () => ({
       },
     },
     functions: {
-      invoke: (name: string, opts: { body: Record<string, string> }) => {
-        calls.push(`invoke ${name} ${opts.body.email} ${opts.body.path}`)
+      invoke: (name: string, opts: { body: Record<string, string | boolean> }) => {
+        calls.push(opts.body.check ? `check ${name}` : `invoke ${name} ${opts.body.email} ${opts.body.path}`)
         return Promise.resolve({ data: null, ...invokeResult })
       },
     },
@@ -40,7 +40,7 @@ vi.mock('@/lib/supabase', () => ({
 
 import { FunctionsHttpError } from '@supabase/supabase-js'
 import {
-  ExportError, buildZip, collectMyData, readablePage, sendMyDataByEmail, wantedFiles, zipFileName, zipWithinLimit, type MyData,
+  ExportError, buildZip, checkCanRequestData, exportErrorText, collectMyData, readablePage, sendMyDataByEmail, wantedFiles, zipFileName, zipWithinLimit, type MyData,
 } from './data-export'
 
 const ME = 'user-1'
@@ -162,6 +162,27 @@ describe('Download my data goes to the email (owner, 24 Nov 2026)', () => {
       await expect(sendMyDataByEmail(ME, 'me@example.com', 'me@example.com')).rejects.toMatchObject({ code: expected })
       expect(calls[2]).toMatch(/^remove data-exports /)
     }
+    invokeResult = { error: null }
+  })
+
+  it('once every 3 days: the check says when the person can ask again, before anything is built', async () => {
+    calls.length = 0
+    selects.length = 0
+    invokeResult = { error: null, data: { allowed: false, nextAt: '2026-11-27T10:00:00.000Z' } }
+    const e = await checkCanRequestData().catch((x) => x)
+    expect(e).toMatchObject({ code: 'rate_limited', nextAt: '2026-11-27T10:00:00.000Z' })
+    expect(calls).toEqual(['check send-my-data'])
+    expect(selects).toEqual([])
+    expect(exportErrorText(e.code, e.nextAt)).toMatch(/^You can ask for a copy of your data once every 3 days\. You can ask again on 27 November/)
+    invokeResult = { error: null, data: { allowed: true, nextAt: null } }
+    await expect(checkCanRequestData()).resolves.toBeUndefined()
+  })
+
+  it('if the 3 days are not over when sending, the date comes back too and the file is removed', async () => {
+    calls.length = 0
+    invokeResult = { error: new FunctionsHttpError(new Response(JSON.stringify({ error: 'rate_limited', nextAt: '2026-11-27T10:00:00.000Z' }), { status: 429 })) }
+    await expect(sendMyDataByEmail(ME, 'me@example.com', 'me@example.com')).rejects.toMatchObject({ code: 'rate_limited', nextAt: '2026-11-27T10:00:00.000Z' })
+    expect(calls[2]).toMatch(/^remove data-exports /)
     invokeResult = { error: null }
   })
 })

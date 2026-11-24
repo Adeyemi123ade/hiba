@@ -46,17 +46,29 @@ export const EXPORT_ERROR_TEXT: Record<ExportErrorCode, string> = {
   session: 'Your session expired. Sign in again to continue.',
   failed: 'We could not prepare your data. Please try again.',
   email_mismatch: 'That is not the email address you signed in with. Type your sign-in email.',
-  rate_limited: 'You have asked for your data 3 times today. Please try again tomorrow.',
+  rate_limited: 'You can ask for a copy of your data once every 3 days.',
   too_large: 'Your data is too large to send in one file. Please contact us and we will send it to you.',
   send_failed: 'We could not send the email. Please try again later.',
 }
 
 export class ExportError extends Error {
   readonly code: ExportErrorCode
-  constructor(code: ExportErrorCode) {
+  /** For rate_limited: when the person may ask again. */
+  readonly nextAt: string | null
+  constructor(code: ExportErrorCode, nextAt: string | null = null) {
     super(code)
     this.code = code
+    this.nextAt = nextAt
   }
+}
+
+/** The message to show, with the date the person may ask again when there is one. */
+export function exportErrorText(code: ExportErrorCode, nextAt: string | null = null): string {
+  const base = EXPORT_ERROR_TEXT[code]
+  if (code !== 'rate_limited' || !nextAt) return base
+  const d = new Date(nextAt)
+  if (Number.isNaN(d.getTime())) return base
+  return `${base} You can ask again on ${d.toLocaleString('en-GB', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}.`
 }
 
 const PAGE = 1000
@@ -316,6 +328,32 @@ const SEND_ERRORS: Record<string, ExportErrorCode> = {
   not_configured: 'send_failed', send_failed: 'send_failed',
 }
 
+/** Reads a refusal from the function as a plain code (and the date for rate_limited). */
+async function refusal(error: unknown): Promise<ExportError> {
+  if (error instanceof FunctionsHttpError) {
+    const res = error.context as Response
+    let payload: { error?: string; nextAt?: string } = {}
+    try {
+      payload = (await res.json()) as typeof payload
+    } catch { /* not JSON */ }
+    if (res.status === 401) return new ExportError('session')
+    const code = SEND_ERRORS[payload.error ?? ''] ?? 'send_failed'
+    return new ExportError(code, code === 'rate_limited' && typeof payload.nextAt === 'string' ? payload.nextAt : null)
+  }
+  return new ExportError(isOffline() ? 'offline' : 'send_failed')
+}
+
+/**
+ * Owner, 24 Nov 2026: a copy can be asked for once every 3 days. Asked before anything is built,
+ * so the person hears about the wait straight away. Throws ExportError('rate_limited', nextAt).
+ */
+export async function checkCanRequestData(): Promise<void> {
+  if (isOffline()) throw new ExportError('offline')
+  const { data, error } = await supabase.functions.invoke<{ allowed?: boolean; nextAt?: string | null }>('send-my-data', { body: { check: true } })
+  if (error) throw await refusal(error)
+  if (data && data.allowed === false) throw new ExportError('rate_limited', data.nextAt ?? null)
+}
+
 /**
  * Sends a copy of the person's data to their own sign-in email, as a private 7-day link.
  * `typedEmail` is what they typed to confirm; it must be their sign-in email.
@@ -338,15 +376,5 @@ export async function sendMyDataByEmail(userId: string, accountEmail: string | n
   if (!error) return
   // The function removes the file itself when it refuses; this is a second try in case it never answered.
   await supabase.storage.from(EXPORT_BUCKET).remove([path]).catch(() => undefined)
-  if (error instanceof FunctionsHttpError) {
-    const res = error.context as Response
-    let code = ''
-    try {
-      code = ((await res.json()) as { error?: string }).error ?? ''
-    } catch { /* not JSON */ }
-    if (res.status === 401) throw new ExportError('session')
-    throw new ExportError(SEND_ERRORS[code] ?? 'send_failed')
-  }
-  if (isOffline()) throw new ExportError('offline')
-  throw new ExportError('send_failed')
+  throw await refusal(error)
 }

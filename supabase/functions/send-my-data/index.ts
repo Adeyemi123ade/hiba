@@ -12,7 +12,8 @@
 // Security
 // - Supabase checks the caller's login before this runs (Verify JWT on).
 // - The file must be in the caller's own folder; the email goes only to the caller's own address.
-// - At most LIMIT_PER_DAY emails per person in 24 hours.
+// - One copy per person every WAIT_HOURS (owner, 24 Nov 2026: once in 3 days). A send that fails
+//   does not count. The app asks first ({ check: true }) so people hear about the wait before anything is built.
 // - The service role key is used only for the link, the record and the clean-up. It never leaves here.
 //
 // Secrets (Supabase > Edge Functions > Secrets):
@@ -26,7 +27,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const BUCKET = 'data-exports'
 const LINK_DAYS = 7
-const LIMIT_PER_DAY = 3
+const WAIT_HOURS = 72
 const SEND_TIMEOUT_MS = 20_000
 
 const cors = {
@@ -95,7 +96,7 @@ async function handle(req: Request): Promise<Response> {
   const auth = req.headers.get('Authorization')
   if (!auth) return fail(401, 'unauthorized')
 
-  let body: { path?: unknown; email?: unknown }
+  let body: { path?: unknown; email?: unknown; check?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -111,9 +112,23 @@ async function handle(req: Request): Promise<Response> {
   if (userError || !userData.user) return fail(401, 'unauthorized')
   const user = userData.user
 
+  const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+
+  // When the person may ask again, or null if they may ask now.
+  const since = new Date(Date.now() - WAIT_HOURS * 60 * 60 * 1000).toISOString()
+  const { data: recent, error: recentError } = await admin.from('data_exports')
+    .select('created_at').eq('user_id', user.id).gte('created_at', since).order('created_at', { ascending: false }).limit(1)
+  if (recentError) {
+    console.error('send-my-data: limit check failed', recentError.message)
+    return fail(500, 'server_error')
+  }
+  const last = recent?.[0]?.created_at as string | undefined
+  const nextAt = last ? new Date(new Date(last).getTime() + WAIT_HOURS * 60 * 60 * 1000).toISOString() : null
+
+  if (body.check === true) return reply(200, { allowed: !nextAt, nextAt })
+
   if (!ownExportPath(body.path, user.id)) return fail(400, 'bad_request')
   const path = body.path as string
-  const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
   const dropFile = () => admin.storage.from(BUCKET).remove([path]).catch(() => undefined)
 
   // The address must be the person's own sign-in email (owner decision).
@@ -130,16 +145,9 @@ async function handle(req: Request): Promise<Response> {
     return fail(503, 'not_configured')
   }
 
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  const { count, error: countError } = await admin.from('data_exports')
-    .select('id', { count: 'exact', head: true }).eq('user_id', user.id).gte('created_at', since)
-  if (countError) {
-    console.error('send-my-data: count failed', countError.message)
-    return fail(500, 'server_error')
-  }
-  if ((count ?? 0) >= LIMIT_PER_DAY) {
+  if (nextAt) {
     await dropFile()
-    return fail(429, 'rate_limited')
+    return reply(429, { error: 'rate_limited', nextAt })
   }
 
   const expires = new Date(Date.now() + LINK_DAYS * 24 * 60 * 60 * 1000)
