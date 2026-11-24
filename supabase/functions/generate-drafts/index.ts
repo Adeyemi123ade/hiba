@@ -194,9 +194,12 @@ const plain = (v: string) => (/^[a-z0-9]+(-[a-z0-9]+)+$/.test(v) ? v.replace(/-/
 const list = (v: unknown) =>
   Array.isArray(v) ? v.filter((x) => typeof x === 'string').map(plain).join(', ') : plain(str(v, 300))
 
-// Owner rules (17 Nov 2026): LinkedIn at most 200 words, X at most 100 words in total
-// (and X's own limit of 280 characters per post), Substack at most 1500 words.
-export const WORD_LIMITS = { linkedin: 200, x: 100, substack: 1500 } as const
+// Owner rules (24 Nov 2026, HPD-164; were 200 / 100 / 1500): LinkedIn at most 300 words (and
+// LinkedIn's own 3000 characters), X at most 150 words in total (and X's own 280 characters per
+// post), Substack at most 3000 words.
+export const WORD_LIMITS = { linkedin: 300, x: 150, substack: 3000 } as const
+// A 3000-word Substack draft needs more room and time than the other calls (HPD-164).
+const LONG_DRAFT = { maxTokens: 9000, timeoutMs: 100_000 }
 export const countWords = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0)
 
 /** How many words over the limits the drafts are in total (0 = all within limits). */
@@ -280,7 +283,7 @@ function parseDrafts(raw: string, wanted: readonly Platform[]): Drafts | null {
     const linkedin = str(d?.linkedin, 6000)
     const x = Array.isArray(d?.x) ? d.x.map((p: unknown) => str(p, 1000)).filter(Boolean).slice(0, 8) : []
     const title = str(d?.substack?.title, 200)
-    const body = str(d?.substack?.body, 20000)
+    const body = str(d?.substack?.body, 30000)
     // Only the platforms asked for must be there; the others stay empty and are never saved.
     if (wanted.includes('linkedin') && !linkedin) return null
     if (wanted.includes('x') && x.length === 0) return null
@@ -658,9 +661,9 @@ export function buildPrompt(
     '- This is a guide, not a template: let the idea decide whether the post is personal, educational, argumentative or reflective.',
     '',
     wanted.length > 1 ? 'PLATFORMS (write genuinely different versions, never a cut-down copy)' : 'PLATFORM',
-    wanted.includes('linkedin') ? `- LinkedIn: at most ${WORD_LIMITS.linkedin} words (aim for 120 to 180). At most 3 relevant hashtags, on the last line, or none.` : '',
-    wanted.includes('x') ? `- X: a thread of 1 to 4 posts, at most ${WORD_LIMITS.x} words in total, each post at most 270 characters, no hashtags. Each post must stand on its own. Inside one X post use single line breaks only, never a blank line.` : '',
-    wanted.includes('substack') ? `- Substack: a title under 80 characters and a body of 400 to ${WORD_LIMITS.substack} words: a clear opening, 2 to 4 short sections, a closing thought. Paragraphs of at most 3 sentences.` : '',
+    wanted.includes('linkedin') ? `- LinkedIn: at most ${WORD_LIMITS.linkedin} words (aim for 180 to 280). At most 3 relevant hashtags, on the last line, or none.` : '',
+    wanted.includes('x') ? `- X: a thread of 1 to 6 posts, at most ${WORD_LIMITS.x} words in total, each post at most 270 characters, no hashtags. Each post must stand on its own. Inside one X post use single line breaks only, never a blank line.` : '',
+    wanted.includes('substack') ? `- Substack: a title under 80 characters and a body of 800 to ${WORD_LIMITS.substack} words: a clear opening, 3 to 6 short sections, a closing thought. Paragraphs of at most 3 sentences.` : '',
     '',
     ...voiceSection(voice),
     '',
@@ -852,8 +855,11 @@ export function buildCommentsPrompt(
 }
 
 async function callOpenAI(key: AiMeter, system: string, user: string, wanted: readonly Platform[]): Promise<Drafts | null> {
-  return parseDrafts((await askOpenAI(key, system, user)) ?? '', wanted)
+  return parseDrafts((await askOpenAIDetailed(key, system, user, draftOptions(wanted))).text ?? '', wanted)
 }
+
+/** Drafts with Substack get the room and time a long article needs; the rest keep the usual limits. */
+const draftOptions = (wanted: readonly Platform[]): AskOptions => (wanted.includes('substack') ? LONG_DRAFT : {})
 
 /** Why the last AI call in a request failed, in plain words (no secrets). */
 async function askOpenAI(key: AiMeter, system: string, user: string): Promise<string | null> {
@@ -1265,7 +1271,7 @@ async function handle(req: Request, run: Run): Promise<Response> {
   const wanted: Platform[] = only ? [only]
     : requested ?? (angle && hadPlatforms.length ? PLATFORMS.filter((p) => hadPlatforms.includes(p)) : defaultPlatforms)
   const { system, user } = buildPrompt(profile, idea.body, rewrite, angle, voice, wanted)
-  const firstRaw = await askOpenAI(key, system, user)
+  const firstRaw = (await askOpenAIDetailed(key, system, user, draftOptions(wanted))).text
   if (firstRaw === null) return aiFail()
   // An unclear new idea: ask the person rather than guess (owner rule, section 2).
   const question = !rewrite && !angle ? parseClarify(firstRaw) : null
@@ -1279,7 +1285,9 @@ async function handle(req: Request, run: Run): Promise<Response> {
   // The voice check joins the writing-rule checks: drift from their measured voice is sent back too.
   const score = (d: Drafts) => qualityScore(d) + 25 * voiceProblems(d, voice?.stats ?? null).length
   const problems = [...overLimits(drafts), ...styleProblems(drafts), ...voiceProblems(drafts, voice?.stats ?? null)]
-  if (problems.length) {
+  // Only if there is time for it: a long Substack draft can take most of the request budget.
+  const timeForRetry = REQUEST_BUDGET_MS - (Date.now() - startedAt) > (draftOptions(wanted).timeoutMs ?? OPENAI_TIMEOUT_MS) + 5_000
+  if (problems.length && timeForRetry) {
     const retry = await callOpenAI(key, system, `${user}\n\nYour previous answer broke these rules: ${problems.join('; ')}. Write it again and follow every rule.`, wanted)
     if (retry && score(retry) < score(drafts)) drafts = retry
   }

@@ -37,7 +37,7 @@ export const LINKEDIN_ERROR_TEXT: Record<LinkedInErrorCode, string> = {
   not_approved: 'Only approved posts can be published. Approve this post first.',
   already_published: 'This post is already on LinkedIn.',
   rate_limited: 'You have posted a lot this hour. Please wait a little before posting again.',
-  too_long: 'This post is over the LinkedIn limit of 200 words. Shorten it, then try again.',
+  too_long: 'This post is over the LinkedIn limit of 300 words. Shorten it, then try again.',
   image_failed: 'Your image could not be sent to LinkedIn, so nothing was posted. Try again, or replace the image.',
   media_failed: 'Your video or document could not be sent to LinkedIn, so nothing was posted. Try again, or replace the file.',
   cancelled: 'LinkedIn was not connected because the request was cancelled. You can try again any time.',
