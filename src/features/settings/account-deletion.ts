@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { EXPORT_BUCKET } from '@/features/settings/data-export'
 import { IMAGE_BUCKET } from '@/features/content/api/image-service'
 import { MEDIA_BUCKET } from '@/features/content/api/media-service'
 import { deleteLocalImages, listLocalImages } from '@/lib/local-images'
@@ -50,7 +51,7 @@ async function listFolder(bucket: string, userId: string): Promise<string[]> {
 /** Deletes every file this person has in Hiba's storage. Safe to run again. */
 export async function deleteMyFiles(userId: string): Promise<number> {
   let removed = 0
-  for (const bucket of [IMAGE_BUCKET, MEDIA_BUCKET]) {
+  for (const bucket of [IMAGE_BUCKET, MEDIA_BUCKET, EXPORT_BUCKET]) {
     const paths = await listFolder(bucket, userId)
     for (let i = 0; i < paths.length; i += PAGE) {
       const { error } = await supabase.storage.from(bucket).remove(paths.slice(i, i + PAGE))

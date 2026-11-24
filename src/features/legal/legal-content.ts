@@ -17,7 +17,7 @@ export const PRIVACY: LegalSection[] = [
   ]],
   ['3. Voice input', ['When you record a voice note, the recording is sent to OpenAI to be turned into text. Hiba does not store the recording or write it to logs; only the resulting text is kept, as one of your ideas. You can use Hiba without voice by typing instead.']],
   ['4. How we use your information', ['To create and secure your account; to generate drafts in your voice; to schedule and publish posts only as you approve or configure; to apply daily limits; to provide support; to keep the service safe and working; to improve Hiba; and to meet legal obligations.', 'We do not sell your personal information. We do not use your content to train AI models ourselves. Hiba does not generate images.']],
-  ['5. Service providers we rely on', ['Supabase (database, file storage and authentication); Vercel (hosting the app); OpenAI (generating drafts from your ideas and turning voice notes into text); Resend (sending verification and password emails); and LinkedIn, only when you connect it or publish to it. Your content is sent to our AI provider to produce drafts, under its own terms. At the time of writing, content sent through its business API is not used to train its models by default; please review its current policy. Each provider processes data only to deliver its service to us.']],
+  ['5. Service providers we rely on', ['Supabase (database, file storage and authentication); Vercel (hosting the app); OpenAI (generating drafts from your ideas and turning voice notes into text); Resend (sending verification, password and data copy emails); and LinkedIn, only when you connect it or publish to it. Your content is sent to our AI provider to produce drafts, under its own terms. At the time of writing, content sent through its business API is not used to train its models by default; please review its current policy. Each provider processes data only to deliver its service to us.']],
   ['6. Legal bases', ['Where laws such as the GDPR or the Nigeria Data Protection Act apply, we process data to perform our agreement with you, with your consent (for example when you connect an account), for our legitimate interests in running a secure service, and to comply with the law.']],
   ['7. International transfers', ["Your information may be processed in countries other than your own, including the European Union and the United States. We rely on our providers' contractual safeguards for these transfers."]],
   ['8. How long we keep it', [
@@ -28,7 +28,7 @@ export const PRIVACY: LegalSection[] = [
   ]],
   ['9. Your rights', [
     'You can access, correct, export or delete your information, object to or restrict its use, and withdraw consent at any time.',
-    'You can correct your details in Settings, download a copy of your data in Settings under Download your data, and delete your account in Settings under Delete account. For any other request, email us and we will reply within 30 days. You may also complain to your data protection authority.',
+    'You can correct your details in Settings, get a copy of your data sent to your email from Settings under Download your data, and delete your account in Settings under Delete account. For any other request, email us and we will reply within 30 days. You may also complain to your data protection authority.',
   ]],
   ['10. Cookies and browser storage', [
     'We use essential browser storage to keep you signed in and to keep unsaved drafts on your device.',

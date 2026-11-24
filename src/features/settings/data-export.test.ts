@@ -3,6 +3,8 @@ import { unzipSync, strFromU8 } from 'fflate'
 
 const selects: { table: string; columns: string; filter: [string, string] }[] = []
 const ROWS: Record<string, Record<string, unknown>[]> = {}
+const calls: string[] = []
+let invokeResult: { error: unknown } = { error: null }
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
@@ -18,10 +20,28 @@ vi.mock('@/lib/supabase', () => ({
       }
       return q
     },
+    storage: {
+      from(bucket: string) {
+        return {
+          download: () => Promise.resolve({ data: null, error: { message: 'Object not found' } }),
+          upload: (path: string) => { calls.push(`upload ${bucket} ${path}`); return Promise.resolve({ data: { path }, error: null }) },
+          remove: (paths: string[]) => { calls.push(`remove ${bucket} ${paths.join(',')}`); return Promise.resolve({ data: [], error: null }) },
+        }
+      },
+    },
+    functions: {
+      invoke: (name: string, opts: { body: Record<string, string> }) => {
+        calls.push(`invoke ${name} ${opts.body.email} ${opts.body.path}`)
+        return Promise.resolve({ data: null, ...invokeResult })
+      },
+    },
   },
 }))
 
-import { buildZip, collectMyData, readablePage, wantedFiles, zipFileName, type MyData } from './data-export'
+import { FunctionsHttpError } from '@supabase/supabase-js'
+import {
+  ExportError, buildZip, collectMyData, readablePage, sendMyDataByEmail, wantedFiles, zipFileName, zipWithinLimit, type MyData,
+} from './data-export'
 
 const ME = 'user-1'
 
@@ -101,5 +121,47 @@ describe('Download my data (HPD-159)', () => {
 
   it('the file is named with the date', () => {
     expect(zipFileName(new Date('2026-11-24T10:00:00Z'))).toBe('hiba-my-data-2026-11-24.zip')
+  })
+
+  it('over 50 MB, attached videos and documents are left out and the page says where they are', () => {
+    const data = sample()
+    const files = wantedFiles(data)
+    const big = new Uint8Array(3000).map((_, i) => (i * 7919) % 251) // does not compress much
+    const contents = new Map([[`${ME}/a.jpg`, new Uint8Array([1])], [`${ME}/deck.pdf`, big]])
+    const zip = unzipSync(zipWithinLimit(data, files, contents, 2500))
+    expect(Object.keys(zip)).not.toContain('files/post-2-My deck.pdf')
+    expect(Object.keys(zip)).toContain('images/post-1-image-1.jpg')
+    expect(strFromU8(zip['read-me-first.html'])).toContain('My deck.pdf (too large to include here; open the post in Hiba to get it)')
+    expect(() => zipWithinLimit(data, files, contents, 100)).toThrow(ExportError)
+  })
+})
+
+describe('Download my data goes to the email (owner, 24 Nov 2026)', () => {
+  it('a different email sends nothing at all', async () => {
+    calls.length = 0
+    selects.length = 0
+    await expect(sendMyDataByEmail(ME, 'me@example.com', 'someone@else.com')).rejects.toMatchObject({ code: 'email_mismatch' })
+    expect(calls).toEqual([])
+    expect(selects).toEqual([])
+  })
+
+  it("the file goes to the person's own private folder, then the function emails it", async () => {
+    calls.length = 0
+    invokeResult = { error: null }
+    await sendMyDataByEmail(ME, 'Me@Example.com', '  me@example.com ')
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatch(new RegExp(`^upload data-exports ${ME}/[0-9a-f-]{36}[.]zip$`))
+    const path = calls[0].split(' ')[2]
+    expect(calls[1]).toBe(`invoke send-my-data me@example.com ${path}`)
+  })
+
+  it('when sending fails, the file is removed and the reason is plain', async () => {
+    for (const [code, expected] of [['rate_limited', 'rate_limited'], ['email_mismatch', 'email_mismatch'], ['not_configured', 'send_failed']]) {
+      calls.length = 0
+      invokeResult = { error: new FunctionsHttpError(new Response(JSON.stringify({ error: code }), { status: 400 })) }
+      await expect(sendMyDataByEmail(ME, 'me@example.com', 'me@example.com')).rejects.toMatchObject({ code: expected })
+      expect(calls[2]).toMatch(/^remove data-exports /)
+    }
+    invokeResult = { error: null }
   })
 })
