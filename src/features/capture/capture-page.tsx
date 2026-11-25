@@ -6,7 +6,7 @@ import { clsx } from 'clsx'
 import { useSession } from '@/features/auth/use-session'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { useOnline } from '@/features/onboarding/use-online'
-import { useSpeechInput } from '@/features/onboarding/use-speech-input'
+import { formatSeconds, useSpeechInput } from '@/features/onboarding/use-speech-input'
 import { Banner } from '@/components/ui/banner'
 import { Card, SkeletonCard } from '@/components/ui/card'
 import { Modal } from '@/components/ui/modal'
@@ -31,7 +31,7 @@ import { AUTO_PUBLISH, nextPostingSlot } from '@/features/content/auto-schedule'
 import { DeletePostDialog } from '@/features/library/delete-post-dialog'
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft } from '@/features/capture/capture-draft'
 import {
-  AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, lengthCheck, cleanIdea, fetchIdea, generateDrafts, saveIdea,
+  SAVED_IDEAS_KEY, deleteSavedIdea, saveIdeaForLater, AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, lengthCheck, cleanIdea, fetchIdea, generateDrafts, saveIdea,
   restoreVersion, savePostBody, archivePost, restorePost, wasPublished, type Angle, type ContentErrorCode, type Platform, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
 import { showSuccess } from '@/components/ui/show-success'
@@ -88,6 +88,9 @@ export function CapturePage() {
   const followUps = profile?.onboarding?.followUpComments !== 'off'
   const [params, setParams] = useSearchParams()
   const ideaParam = params.get('idea')
+  // HPD-171: opened from Posts > Saved ideas. It leaves that list once posts are drafted from it.
+  const [openedSavedId, setOpenedSavedId] = useState<string | null>(() => (params.get('from') === 'saved' ? params.get('idea') : null))
+  const [savingLater, setSavingLater] = useState(false)
 
   const [phase, setPhase] = useState<Phase>(ideaParam ? 'loading' : 'write')
   const [text, setText] = useState(() => loadCaptureDraft(userId)?.text ?? '')
@@ -123,13 +126,11 @@ export function CapturePage() {
   const loadedIdea = useRef<string | null>(null)
   const mediaRef = useRef<PostMediaHandle>(null)
 
-  const [heardNotice, setHeardNotice] = useState(false)
   const [voiceSlow, setVoiceSlow] = useState(false)
   const speech = useSpeechInput(
     useCallback((heard: string) => {
       setSource('voice')
       setFieldError(null)
-      setHeardNotice(true)
       setText((t) => {
         const joined = t.trim() ? `${t.trimEnd()} ${heard.trim()}` : heard.trim()
         if (joined.length > IDEA_MAX) {
@@ -236,7 +237,6 @@ export function CapturePage() {
       setError('offline')
       return
     }
-    setHeardNotice(false)
     setClarify(null)
     setFieldError(null)
     setError(null)
@@ -253,6 +253,9 @@ export function CapturePage() {
         saveCaptureDraft(userId, { text: clean, ideaId: id })
       }
       const result = await generateDrafts(id, { platforms })
+      if (openedSavedId && openedSavedId !== id) void deleteSavedIdea(openedSavedId).catch(() => {})
+      setOpenedSavedId(null)
+      void queryClient.invalidateQueries({ queryKey: SAVED_IDEAS_KEY })
       const sorted = [...result].sort((a, b) => order(a.platform) - order(b.platform))
       setPosts(sorted)
       setTab(sorted.find((p) => AWAITING_REVIEW.includes(p.status))?.platform ?? sorted[0]?.platform ?? 'linkedin')
@@ -302,16 +305,50 @@ export function CapturePage() {
     if (next.length) setChosenPlatforms(next)
   }
 
+  /** HPD-171: keep the idea for later instead of drafting it now (Posts > Saved ideas). */
+  async function saveForLater() {
+    if (speech.listening || speech.transcribing) {
+      setFieldError('Finish your recording first: tap stop, then check your idea.')
+      return
+    }
+    const clean = cleanIdea(text)
+    if (!clean) {
+      setFieldError('Tell me your idea first. Type it or tap the microphone.')
+      return
+    }
+    if (!online) {
+      setError('offline')
+      return
+    }
+    setSavingLater(true)
+    setFieldError(null)
+    setError(null)
+    try {
+      // An opened saved idea that was not changed is already saved. A changed one replaces the old copy.
+      if (!(openedSavedId && savedText === clean)) {
+        await saveIdeaForLater(clean, source)
+        if (openedSavedId) await deleteSavedIdea(openedSavedId).catch(() => {})
+      }
+      startOver()
+      showSuccess('Saved for later.')
+      void queryClient.invalidateQueries({ queryKey: SAVED_IDEAS_KEY })
+    } catch (e) {
+      setError(codeOf(e))
+    } finally {
+      setSavingLater(false)
+    }
+  }
+
   function startOver() {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     flushSave()
     speech.cancel()
-    setHeardNotice(false)
     clearCaptureDraft(userId)
     setText('')
     setIdeaId(null)
     setSavedText(null)
     setSource('typed')
+    setOpenedSavedId(null)
     setPosts([])
     setError(null)
     setFieldError(null)
@@ -581,6 +618,9 @@ export function CapturePage() {
   if (phase === 'drafts' && active) {
     const count = countLabel(active.platform, active.body)
     const isApproved = !AWAITING_REVIEW.includes(active.status)
+    // HPD-171 (owner, 25 Nov 2026): the text stays editable, also while working on the comments under it,
+    // until the post is on LinkedIn. Editing keeps the status; the new text is what gets posted.
+    const locked = active.status === 'published' || active.status === 'archived'
     // Attachments can still change until the post is scheduled or published (as before).
     const mediaEditable = active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'
     const canAttach = active.platform === 'linkedin' && Boolean(userId) && mediaEditable
@@ -591,10 +631,6 @@ export function CapturePage() {
         {leaveDialog}
         {errorBanner}
         <Card>
-          <p className="mb-3 text-sm text-[var(--color-text-secondary)]">
-            <span className="font-semibold text-[var(--color-text-primary)]">Your idea: </span>
-            {text}
-          </p>
           <p className="mb-3 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
             Status: <StatusBadge status={active.status} />
           </p>
@@ -637,14 +673,14 @@ export function CapturePage() {
               <input
                 value={active.title ?? ''}
                 maxLength={200}
-                readOnly={isApproved}
+                readOnly={locked}
                 onChange={(e) => editActive({ title: e.target.value })}
                 className="mt-1 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] px-3 py-2"
               />
             </label>
           )}
           <label htmlFor="draft-text" className="sr-only">Draft text</label>
-          <PostTextBox value={active.body} readOnly={isApproved} onChange={(body) => editActive({ body })} describedBy="draft-count"
+          <PostTextBox value={active.body} readOnly={locked} onChange={(body) => editActive({ body })} describedBy="draft-count"
             bar={canAttach && (
               <AttachmentMenu disabled={!online}
                 enabled={attachChoices(imagesOf(active).length, IMAGE_MAX_COUNT, Boolean(active.attachment))}
@@ -792,7 +828,7 @@ export function CapturePage() {
               Your browser blocked copying. Select the text above and copy it yourself.
             </p>
           )}
-          <VersionHistory post={active} readOnly={isApproved} onUse={switchVersion} />
+          <VersionHistory post={active} readOnly={locked} onUse={switchVersion} />
 
           {active.status !== 'archived' && (
             <div className="mt-3 border-t border-[var(--color-border)] pt-3 text-sm">
@@ -864,106 +900,93 @@ export function CapturePage() {
         </Banner>
       )}
 
-      <Card className="flex flex-col items-center gap-3 py-8 text-center">
-        {speech.supported ? (
-          <>
-            <button
-              type="button"
-              onClick={speech.toggle}
-              disabled={speech.transcribing}
-              aria-label={speech.listening ? 'Stop recording' : 'Start recording'}
-              className={clsx(
-                'flex h-24 w-24 items-center justify-center rounded-full text-white transition-colors disabled:opacity-50',
-                speech.listening
-                  ? 'animate-pulse bg-[var(--color-error)] shadow-[0_0_0_12px_rgba(239,68,68,0.2)]'
-                  : 'bg-[var(--color-primary)] shadow-[0_0_0_10px_var(--color-primary-soft)]',
-              )}
-            >
-              {speech.transcribing ? <Loader2 size={34} className="animate-spin" aria-hidden="true" />
-                : speech.listening ? <Square size={30} aria-hidden="true" /> : <Mic size={38} aria-hidden="true" />}
-            </button>
-            <h2 className="mt-2 text-lg font-semibold text-[var(--color-text-primary)]">
-              {speech.listening ? 'Recording... tap to stop' : speech.transcribing ? 'Turning your voice into text...' : 'Tap and talk'}
-            </h2>
-            {(speech.listening || speech.transcribing) && (
-              <p role="status" className="min-h-6 max-w-md text-sm text-[var(--color-text-secondary)]">
-                {speech.transcribing && voiceSlow ? 'Still working. Your connection seems slow, please keep this page open.' : speech.interim}
-              </p>
-            )}
-            {!speech.listening && !speech.transcribing && !speech.error && (
-              <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
-                Speak naturally for up to 5 minutes. You can check and fix the text before anything is written.
-              </p>
-            )}
-            {!online && !speech.listening && !speech.transcribing && (
-              <p className="text-sm text-[var(--color-text-secondary)]">You are offline. You can record now and send it once you reconnect, or type below.</p>
-            )}
-            {speech.error && (
-              <div role="alert" className="flex max-w-md flex-col items-center gap-2 text-sm text-red-700">
-                <p>{speech.error} You can also type your idea below.</p>
-                {speech.canRetry && (
-                  <button type="button" className={outlineBtn} onClick={speech.retry} disabled={!online}>Try again</button>
-                )}
-              </div>
-            )}
-            {!speech.listening && !speech.transcribing && <LeftToday action="voice" />}
-          </>
-        ) : (
-          <>
-            <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">Type your idea below</h2>
-            <p className="max-w-md text-sm text-[var(--color-text-secondary)]">
-              Voice recording does not work in this browser. Please type instead, or use Chrome, Edge or Safari.
-            </p>
-          </>
-        )}
-      </Card>
-
       <Card>
-        <label htmlFor="idea" className="mb-2 block text-lg font-semibold text-[var(--color-text-primary)]">
-          {speech.supported ? (heardNotice ? 'Your idea' : 'Or type your idea') : 'Your idea'}
-        </label>
-        {heardNotice && (
+        <label htmlFor="idea" className="mb-2 block text-lg font-semibold text-[var(--color-text-primary)]">Your idea</label>
+        {openedSavedId && (
           <p role="status" className="mb-2 rounded-[var(--radius-sm)] bg-[var(--color-primary-soft)] px-3 py-2 text-sm text-[var(--color-primary-dark)]">
-            Here is what I heard. Please read it and fix anything I got wrong before making your posts.
+            Saved idea opened. It leaves your saved ideas once your posts are drafted.
           </p>
         )}
-        <textarea
-          id="idea"
-          value={text}
-          maxLength={IDEA_MAX}
-          onChange={(e) => {
-            setText(e.target.value)
-            setFieldError(null)
-            if (e.target.value.length < IDEA_MAX) setLimitNotice(null)
-          }}
-          onPaste={(e) => {
-            const pasted = e.clipboardData.getData('text')
-            const el = e.currentTarget
-            const total = text.length - (el.selectionEnd - el.selectionStart) + pasted.length
-            if (total > IDEA_MAX) {
-              setLimitNotice(
-                `What you pasted made your idea ${total} characters long. Only ${IDEA_MAX} fit, so the end was cut off. Please check the last part.`,
-              )
-            }
-          }}
-          aria-invalid={Boolean(fieldError)}
-          aria-describedby={fieldError ? 'idea-error idea-count' : 'idea-count'}
-          placeholder="e.g. Today I learned that slow meetings cost more than they save..."
-          className={clsx(
-            'min-h-[140px] w-full rounded-[var(--radius-md)] border bg-[var(--color-bg-cream)] p-3 text-[var(--color-text-primary)]',
-            fieldError ? 'border-[var(--color-error)]' : 'border-[var(--color-border)]',
-          )}
-        />
+        {/* HPD-171 (owner, 25 Nov 2026): one box. The microphone lives inside it, and what is said is written into it. */}
+        <div className={clsx(
+          'flex flex-col rounded-[var(--radius-md)] border bg-[var(--color-bg-cream)] focus-within:border-[var(--color-primary)] focus-within:ring-2 focus-within:ring-[var(--color-primary-soft)]',
+          fieldError ? 'border-[var(--color-error)]' : 'border-[var(--color-border)]',
+        )}>
+          <textarea
+            id="idea"
+            value={text}
+            maxLength={IDEA_MAX}
+            readOnly={speech.listening || speech.transcribing}
+            onChange={(e) => {
+              setText(e.target.value)
+              setFieldError(null)
+              if (e.target.value.length < IDEA_MAX) setLimitNotice(null)
+            }}
+            onPaste={(e) => {
+              const pasted = e.clipboardData.getData('text')
+              const el = e.currentTarget
+              const total = text.length - (el.selectionEnd - el.selectionStart) + pasted.length
+              if (total > IDEA_MAX) {
+                setLimitNotice(
+                  `What you pasted made your idea ${total} characters long. Only ${IDEA_MAX} fit, so the end was cut off. Please check the last part.`,
+                )
+              }
+            }}
+            aria-invalid={Boolean(fieldError)}
+            aria-describedby={fieldError ? 'idea-error idea-count' : 'idea-count'}
+            placeholder="e.g. Today I learned that slow meetings cost more than they save..."
+            className="min-h-[150px] w-full resize-y rounded-t-[var(--radius-md)] bg-transparent p-3 text-[var(--color-text-primary)] focus:outline-none"
+          />
+          <div className="flex min-h-12 items-center justify-between gap-2 pb-2 pl-3 pr-2">
+            <div className="min-w-0 text-sm text-[var(--color-text-secondary)]" aria-live="polite">
+              {speech.listening ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--color-error)]" aria-hidden="true" />
+                  Recording {formatSeconds(speech.seconds)}. Tap to stop.
+                </span>
+              ) : speech.transcribing ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 size={14} className="shrink-0 animate-spin" aria-hidden="true" />
+                  {voiceSlow ? 'Still working. Your connection seems slow, please keep this page open.' : 'Writing down what you said...'}
+                </span>
+              ) : text ? (
+                <button type="button" onClick={startOver} className="rounded px-1.5 py-1 font-medium hover:text-[var(--color-primary-dark)]">Clear</button>
+              ) : speech.supported ? 'Type, or tap the microphone and talk.' : 'Type your idea.'}
+            </div>
+            {speech.supported && (
+              <button
+                type="button"
+                onClick={speech.toggle}
+                disabled={speech.transcribing}
+                aria-label={speech.listening ? 'Stop recording' : 'Talk instead of typing'}
+                className={clsx(
+                  'flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-50',
+                  speech.listening
+                    ? 'animate-pulse bg-[var(--color-error)] text-white'
+                    : 'bg-[var(--color-primary-soft)] text-[var(--color-primary-dark)] hover:bg-[var(--color-primary-light)]',
+                )}
+              >
+                {speech.listening ? <Square size={14} fill="currentColor" aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
+              </button>
+            )}
+          </div>
+        </div>
         <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)]">
           {fieldError ? (
             <span id="idea-error" role="alert" className="text-sm text-[var(--color-error)]">{fieldError}</span>
-          ) : (
-            <span>{ideaId ? 'Your idea is saved.' : ''}</span>
-          )}
+          ) : <span />}
           <span id="idea-count" className={remaining < 100 ? 'text-[var(--color-error)]' : ''}>
             {remaining} characters left
           </span>
         </div>
+        {speech.error && (
+          <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-sm text-red-700">
+            <span>{speech.error} You can also type your idea.</span>
+            {speech.canRetry && (
+              <button type="button" className={outlineBtn} onClick={speech.retry} disabled={!online}>Try again</button>
+            )}
+          </div>
+        )}
         {limitNotice && (
           <p role="status" className="mt-2 rounded-[var(--radius-sm)] bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {limitNotice}
@@ -987,16 +1010,18 @@ export function CapturePage() {
             At least one. Choose what is ticked at the start in <Link to="/dashboard/settings" className="underline">Settings</Link>.
           </p>
         </fieldset>
-        <div className="mt-4 flex flex-wrap justify-between gap-2">
-          <button type="button" className={outlineBtn} onClick={startOver} disabled={!text && !ideaId}>
-            Clear
+        {/* Side by side (owner, 25 Nov 2026). */}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" className={outlineBtn} onClick={saveForLater} disabled={!online || savingLater}>
+            {savingLater ? 'Saving...' : 'Save for later'}
           </button>
-          <div className="flex flex-col items-end gap-1">
-            <button type="button" className={primaryBtn} onClick={makePosts} disabled={!online}>
-              Draft my post
-            </button>
-            <LeftToday action="draft" />
-          </div>
+          <button type="button" className={primaryBtn} onClick={makePosts} disabled={!online || savingLater}>
+            Draft my post
+          </button>
+        </div>
+        <div className="mt-1 flex flex-wrap justify-between gap-x-3">
+          {speech.supported ? <LeftToday action="voice" /> : <span />}
+          <LeftToday action="draft" />
         </div>
       </Card>
     </div>

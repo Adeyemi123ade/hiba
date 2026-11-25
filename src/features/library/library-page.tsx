@@ -10,9 +10,10 @@ import { Card, SkeletonCard } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import {
-  ContentError, PLATFORMS, STATUS_LABELS, archivePost, restorePost, wasPublished, type ContentErrorCode, type Platform,
+  ContentError, PLATFORMS, SAVED_IDEAS_KEY, STATUS_LABELS, archivePost, fetchSavedIdeas, restorePost, wasPublished, type ContentErrorCode, type Platform,
 } from '@/features/content/api/content-service'
 import { DeletePostDialog } from '@/features/library/delete-post-dialog'
+import { SavedIdeas } from '@/features/library/saved-ideas'
 import {
   SEARCH_MAX, STATUS_FILTERS, fetchLibraryPage, imageThumbnails, isPlatform, isStatusFilter,
   type LibraryPost, type StatusFilter,
@@ -110,7 +111,7 @@ function RowActions({ post, online, onDone, onAskDelete }: {
 const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
 
 /** HPD-55 / HPD-56: every post the person has made, with search and filters. */
-export function LibraryPage() {
+function PostsList() {
   const { session } = useSession()
   const userId = session?.user.id
   const online = useOnline()
@@ -208,9 +209,6 @@ export function LibraryPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">Posts</h1>
-      <p className="mb-5 text-[var(--color-text-secondary)]">Everything you have made with Hiba. Search, filter and open any post.</p>
-
       <Card>
         <label htmlFor="library-search" className="block text-sm font-semibold text-[var(--color-text-primary)]">
           Search your posts
@@ -456,6 +454,58 @@ export function LibraryPage() {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+type View = 'posts' | 'saved'
+
+/**
+ * Posts, with a switch to Saved ideas (HPD-171). The owner keeps 6 menu items (25 Nov 2026),
+ * so saved ideas live here instead of on their own screen.
+ */
+export function LibraryPage() {
+  const { session } = useSession()
+  const userId = session?.user.id
+  const online = useOnline()
+  const [params, setParams] = useSearchParams()
+  const view: View = params.get('view') === 'saved' ? 'saved' : 'posts'
+  const saved = useQuery({
+    queryKey: [...SAVED_IDEAS_KEY, userId],
+    queryFn: fetchSavedIdeas,
+    enabled: Boolean(userId),
+    staleTime: 0,
+    retry: 1,
+  })
+
+  const tabClass = (on: boolean) => clsx(
+    'flex flex-1 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] px-3 py-2 text-sm',
+    on ? 'bg-[var(--color-primary-soft)] font-semibold text-[var(--color-primary-dark)]' : 'text-[var(--color-text-primary)] hover:bg-[var(--color-bg-light-green)]',
+  )
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">Posts</h1>
+      <p className="mb-4 text-[var(--color-text-secondary)]">
+        {view === 'saved' ? 'Ideas you kept for later. Draft one when you are ready.' : 'Everything you have made with Hiba. Search, filter and open any post.'}
+      </p>
+      <div role="group" aria-label="Show" className="mb-4 flex gap-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-1">
+        <button type="button" aria-pressed={view === 'posts'} className={tabClass(view === 'posts')}
+          onClick={() => setParams({}, { replace: true })}>
+          Posts
+        </button>
+        <button type="button" aria-pressed={view === 'saved'} className={tabClass(view === 'saved')}
+          onClick={() => setParams({ view: 'saved' }, { replace: true })}>
+          Saved ideas
+          {saved.data && (
+            <span className={clsx('rounded-full px-1.5 text-xs tabular-nums',
+              view === 'saved' ? 'bg-[var(--color-primary-dark)] text-white' : 'bg-[var(--color-border)] text-[var(--color-text-primary)]')}>
+              {saved.data.length}
+            </span>
+          )}
+        </button>
+      </div>
+      {view === 'saved' ? <SavedIdeas query={saved} online={online} /> : <PostsList />}
     </div>
   )
 }
