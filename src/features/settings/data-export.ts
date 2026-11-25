@@ -164,7 +164,7 @@ export function wantedFiles(data: Pick<MyData, 'posts' | 'online_image_library'>
   return out
 }
 
-/** Downloads the files. A file Hiba no longer holds (removed after posting) is just left out. */
+/** Downloads the files. A file Hiba no longer holds (for example from older posts) is just left out. */
 async function fetchFiles(files: WantedFile[]): Promise<Map<string, Uint8Array>> {
   const got = new Map<string, Uint8Array>()
   for (const f of files) {
@@ -242,7 +242,7 @@ export function readablePage(data: MyData, files: WantedFile[], included: Set<st
   <div class="body">${esc(p.body)}</div>
   ${images.length ? `<div class="images">${images.map((img) => {
     const f = fileFor.get(img.path)
-    return f ? `<img src="${esc(f)}" alt="${esc(img.alt ?? '')}">` : '<p class="note">An image that Hiba no longer keeps (it was removed after posting).</p>'
+    return f ? `<img src="${esc(f)}" alt="${esc(img.alt ?? '')}">` : '<p class="note">An image that Hiba no longer has.</p>'
   }).join('')}</div>` : ''}
   ${att?.path ? `<p>${fileFor.has(att.path) ? `Attached file: <a href="${esc(fileFor.get(att.path))}">${esc(att.name ?? 'file')}</a>`
     : tooLarge.has(att.path) ? `Attached file: ${esc(att.name ?? 'file')} (too large to include here; open the post in Hiba to get it)`

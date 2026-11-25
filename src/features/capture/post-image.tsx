@@ -206,7 +206,7 @@ function ImageCard({ image, index, count, postId, posted, editable, disabled, bu
           <img src={preview} alt={altText || `Image ${n} attached to this post`} className="block max-h-[28rem] w-full object-contain" />
         ) : previewFailed && posted ? (
           <span className="px-2 text-center text-xs text-[var(--color-text-secondary)]">
-            Posted to LinkedIn. Hiba no longer keeps a copy of this image.
+            This image is no longer in Hiba (older posts had it removed after posting). It is still on LinkedIn.
           </span>
         ) : previewFailed ? (
           <span className="px-2 text-center text-xs text-[var(--color-text-secondary)]">

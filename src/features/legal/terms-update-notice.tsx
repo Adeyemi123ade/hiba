@@ -42,8 +42,8 @@ export function TermsUpdateNotice() {
       </button>
     }>
       We updated our <a href="/privacy" target="_blank" rel="noopener noreferrer" className={link}>Privacy Policy</a> and{' '}
-      <a href="/terms" target="_blank" rel="noopener noreferrer" className={link}>Terms</a> on {EFFECTIVE_DATE}: your image
-      library now stays on your device, and you can delete your account in Settings.
+      <a href="/terms" target="_blank" rel="noopener noreferrer" className={link}>Terms</a> on {EFFECTIVE_DATE}: images on your
+      posts now stay with the post after it is published, until you delete the post.
     </Banner>
   )
 }

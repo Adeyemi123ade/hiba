@@ -6,7 +6,7 @@ import { clsx } from 'clsx'
  * Sits on a soft green track; a fade on the right shows when more are hidden.
  * Keyboard focus scrolls the focused chip into view by itself.
  */
-export function SwipeRow({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
+export function SwipeRow({ className, outerClassName, children, ...rest }: HTMLAttributes<HTMLDivElement> & { outerClassName?: string }) {
   const row = useRef<HTMLDivElement>(null)
   const [more, setMore] = useState({ left: false, right: false })
 
@@ -22,7 +22,7 @@ export function SwipeRow({ className, children, ...rest }: HTMLAttributes<HTMLDi
   }, [])
 
   return (
-    <div className="relative">
+    <div className={clsx('relative', outerClassName)}>
       <div ref={row} {...rest}
         className={clsx(
           'flex snap-x snap-mandatory scroll-px-1.5 gap-2 overflow-x-auto overscroll-x-contain rounded-full bg-[var(--color-bg-soft-green)] p-1.5',

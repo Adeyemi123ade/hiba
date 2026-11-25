@@ -19,6 +19,7 @@ import {
   type LibraryPost, type StatusFilter,
 } from '@/features/library/library-service'
 import { PlatformLogo } from '@/components/ui/platform-logo'
+import { SwipeRow } from '@/components/ui/swipe-row'
 
 const platformName = (p: Platform) => PLATFORMS.find((x) => x.id === p)?.name ?? p
 
@@ -243,7 +244,8 @@ function PostsList() {
         </p>
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-2">
+          {/* Swipe right to left when they do not all fit (owner, 25 Nov 2026). */}
+          <SwipeRow role="group" aria-label="Filter by status" outerClassName="min-w-0 sm:flex-1">
             {STATUS_FILTERS.map((f) => (
               <button
                 key={f.id}
@@ -251,16 +253,16 @@ function PostsList() {
                 aria-pressed={status === f.id}
                 onClick={() => update({ status: f.id === 'all' ? null : f.id })}
                 className={clsx(
-                  'rounded-full border px-3 py-1.5 text-sm',
+                  'whitespace-nowrap rounded-full border px-3 py-1.5 text-sm shadow-sm transition active:scale-95',
                   status === f.id
-                    ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] font-semibold text-[var(--color-primary-dark)]'
-                    : 'border-[var(--color-border)] text-[var(--color-text-primary)] hover:border-[var(--color-primary-light)]',
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary-dark)] font-semibold text-white'
+                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-primary)] hover:border-[var(--color-primary-light)]',
                 )}
               >
                 {f.label}
               </button>
             ))}
-          </div>
+          </SwipeRow>
           <label className="flex shrink-0 items-center gap-2 text-sm text-[var(--color-text-primary)]">
             Platform
             <select
