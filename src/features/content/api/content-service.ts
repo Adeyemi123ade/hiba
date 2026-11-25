@@ -174,6 +174,42 @@ export async function saveIdea(body: string, source: 'typed' | 'voice'): Promise
   return data.id as string
 }
 
+/** HPD-171: an idea kept for later (Posts > Saved ideas). */
+export interface SavedIdea {
+  id: string
+  body: string
+  source: 'typed' | 'voice'
+  saved_at: string
+}
+
+export const SAVED_IDEAS_KEY = ['saved-ideas'] as const
+
+/** Keeps an idea for later instead of drafting it now. The database sets the time (migration 0025). */
+export async function saveIdeaForLater(body: string, source: 'typed' | 'voice'): Promise<string> {
+  const { data, error } = await supabase.from('ideas')
+    .insert({ body, source, saved_at: new Date().toISOString() }).select('id').single()
+  if (error || !data) throw toContentError(error)
+  return data.id as string
+}
+
+/** The person's saved ideas, newest first. An idea leaves this list once posts are drafted from it. */
+export async function fetchSavedIdeas(): Promise<SavedIdea[]> {
+  const { data, error } = await supabase.from('ideas')
+    .select('id, body, source, saved_at')
+    .not('saved_at', 'is', null)
+    .order('saved_at', { ascending: false })
+    .limit(200)
+  if (error) throw toContentError(error)
+  return (data ?? []) as SavedIdea[]
+}
+
+/** Deletes a saved idea for good (only one of your own, and only while no posts come from it). */
+export async function deleteSavedIdea(id: string): Promise<void> {
+  const { data, error } = await supabase.rpc('delete_saved_idea', { p_idea: id })
+  if (error) throw toContentError(error)
+  if (data !== true) throw new ContentError('not_found')
+}
+
 export const GUIDANCE_MAX = 300
 
 /** Calls the drafting function and turns its errors into plain-language codes. */

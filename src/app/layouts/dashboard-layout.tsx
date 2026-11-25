@@ -9,6 +9,7 @@ import { useSession } from '@/features/auth/use-session'
 import { cleanUpPostedImages } from '@/features/content/api/image-service'
 import { TermsUpdateNotice } from '@/features/legal/terms-update-notice'
 import { NotificationBell } from '@/features/notifications/notification-bell'
+import { SuccessMessages } from '@/components/ui/success-message'
 
 const NAV = [
   { to: '/dashboard/home', label: 'Home', icon: Home },
@@ -88,6 +89,8 @@ export function DashboardLayout() {
           <Outlet />
         </main>
       </div>
+
+      <SuccessMessages />
 
       <nav
         aria-label="Main"

@@ -9,6 +9,7 @@ import {
 import { Gallery, ImagePreview } from '@/features/images/gallery'
 import { NO_SELECTION, longPress, startSelecting, tap, type Selection } from '@/features/images/selection'
 import { libraryKey, outlineBtn, primaryBtn, thumbsOf, useBlobUrls, useLibrary } from '@/features/images/use-library'
+import { showSuccess } from '@/components/ui/show-success'
 
 const codeOf = (e: unknown): LocalImageErrorCode => (e instanceof LocalImageError ? e.code : 'unavailable')
 
@@ -23,7 +24,6 @@ export function ImagesPage() {
   const fileInput = useRef<HTMLInputElement>(null)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<LocalImageErrorCode | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const [selection, setSelection] = useState<Selection>(NO_SELECTION)
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -44,11 +44,10 @@ export function ImagesPage() {
     if (!files.length || !userId) return
     setAdding(true)
     setError(null)
-    setNotice(null)
     try {
       await addLocalImages(userId, files)
       await refresh()
-      setNotice(files.length === 1 ? 'Image added.' : `${files.length} images added.`)
+      showSuccess(files.length === 1 ? 'Image added.' : `${files.length} images added.`)
     } catch (e) {
       setError(codeOf(e))
     } finally {
@@ -65,7 +64,7 @@ export function ImagesPage() {
       await deleteLocalImages(selection.ids)
       await refresh()
       cancel()
-      setNotice(n === 1 ? 'Image deleted.' : `${n} images deleted.`)
+      showSuccess(n === 1 ? 'Image deleted.' : `${n} images deleted.`)
     } catch (e) {
       setError(codeOf(e))
     } finally {
@@ -82,7 +81,7 @@ export function ImagesPage() {
         <h1 className="text-2xl font-bold text-[var(--color-text-primary)]">Images</h1>
         <div className="flex gap-2">
           {images.length > 0 && !selection.active && (
-            <button type="button" className={outlineBtn} onClick={() => { setSelection(startSelecting()); setError(null); setNotice(null) }}>Select</button>
+            <button type="button" className={outlineBtn} onClick={() => { setSelection(startSelecting()); setError(null) }}>Select</button>
           )}
           <button type="button" className={primaryBtn} onClick={() => fileInput.current?.click()} disabled={adding || !userId}>
             {adding ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <ImagePlus size={16} aria-hidden="true" />}
@@ -97,7 +96,6 @@ export function ImagesPage() {
         Your images are kept on this device only. They do not appear on your other devices, and clearing this
         browser's data, uninstalling it or losing the device removes them. Images already posted stay on LinkedIn.
       </p>
-      {notice && <p role="status" className="mb-2 text-sm text-emerald-800">{notice}</p>}
       {error && <p role="alert" className="mb-2 text-sm text-[var(--color-error)]">{LOCAL_IMAGE_ERROR_TEXT[error]}</p>}
 
       {library.isLoading && <SkeletonCard />}
@@ -120,7 +118,7 @@ export function ImagesPage() {
             setConfirming(false)
             if (r.open) setOpen(r.open)
           }}
-          onLongPress={(id) => { setSelection((s) => longPress(s, id)); setConfirming(false); setError(null); setNotice(null) }} />
+          onLongPress={(id) => { setSelection((s) => longPress(s, id)); setConfirming(false); setError(null) }} />
       )}
 
       {selection.active && (

@@ -57,8 +57,9 @@ export function AttachmentMenu({ enabled, disabled, onChoose }: {
       {/* HPD-166 (owner, 24 Nov 2026): the words show next to the paperclip, so it is clear what it does. */}
       <button ref={button} type="button" aria-haspopup="menu" aria-expanded={open}
         disabled={disabled} onClick={() => setOpen((o) => !o)}
-        className={clsx('flex h-9 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-light-green)] hover:text-[var(--color-primary-dark)]',
-          'disabled:cursor-not-allowed disabled:opacity-40', open && 'bg-[var(--color-bg-light-green)] text-[var(--color-primary-dark)]')}>
+        // HPD-171 (owner, 25 Nov 2026): green, so it is hard to miss before the post goes out.
+        className={clsx('flex h-9 items-center gap-1.5 rounded-full bg-[var(--color-primary-dark)] px-3.5 text-sm font-semibold text-white shadow-sm hover:bg-[var(--color-ink)]',
+          'disabled:cursor-not-allowed disabled:opacity-40', open && 'bg-[var(--color-ink)]')}>
         <Paperclip size={18} aria-hidden="true" />
         Add attachment
       </button>
