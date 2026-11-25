@@ -18,6 +18,7 @@ import {
   SEARCH_MAX, STATUS_FILTERS, fetchLibraryPage, imageThumbnails, isPlatform, isStatusFilter,
   type LibraryPost, type StatusFilter,
 } from '@/features/library/library-service'
+import { PlatformLogo } from '@/components/ui/platform-logo'
 
 const platformName = (p: Platform) => PLATFORMS.find((x) => x.id === p)?.name ?? p
 
@@ -391,14 +392,12 @@ function PostsList() {
                       ) : post.image_path ? (
                         <ImageIcon size={20} className="text-[var(--color-text-secondary)]" aria-label="Has an image" />
                       ) : (
-                        <span className="text-xs font-semibold text-[var(--color-primary-dark)]" aria-hidden="true">
-                          {post.platform === 'linkedin' ? 'in' : post.platform === 'x' ? 'X' : 'S'}
-                        </span>
+                        <PlatformLogo platform={post.platform} size={22} />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="font-semibold text-[var(--color-text-primary)]">{platformName(post.platform)}</span>
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--color-text-primary)]"><PlatformLogo platform={post.platform} size={14} />{platformName(post.platform)}</span>
                         <StatusBadge status={post.status} />
                       </div>
                       <Link

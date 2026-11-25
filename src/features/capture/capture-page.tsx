@@ -35,6 +35,8 @@ import {
   restoreVersion, savePostBody, archivePost, restorePost, wasPublished, type Angle, type ContentErrorCode, type Platform, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
 import { showSuccess } from '@/components/ui/show-success'
+import { PlatformLogo } from '@/components/ui/platform-logo'
+import { SwipeRow } from '@/components/ui/swipe-row'
 
 type Phase = 'loading' | 'write' | 'working' | 'drafts'
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed'
@@ -621,8 +623,9 @@ export function CapturePage() {
     // HPD-171 (owner, 25 Nov 2026): the text stays editable, also while working on the comments under it,
     // until the post is on LinkedIn. Editing keeps the status; the new text is what gets posted.
     const locked = active.status === 'published' || active.status === 'archived'
-    // Attachments can still change until the post is scheduled or published (as before).
-    const mediaEditable = active.status === 'draft' || active.status === 'needs_review' || active.status === 'approved'
+    // Owner, 25 Nov 2026: wherever the text can be edited, attachments can be added too (people often remember
+    // the image late). The publisher reads the images when it posts, so a scheduled post sends the latest ones.
+    const mediaEditable = !locked
     const canAttach = active.platform === 'linkedin' && Boolean(userId) && mediaEditable
     const anyDraft = posts.some((p) => AWAITING_REVIEW.includes(p.status))
     return (
@@ -634,7 +637,8 @@ export function CapturePage() {
           <p className="mb-3 flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
             Status: <StatusBadge status={active.status} />
           </p>
-          <div role="tablist" aria-label="Platforms" className="mb-3 flex flex-wrap gap-2">
+          {/* Swipe right to left when they do not all fit (owner, 25 Nov 2026). */}
+          <SwipeRow role="tablist" aria-label="Platforms" className="mb-3">
             {posts.map((p) => (
               <button
                 key={p.id}
@@ -648,24 +652,26 @@ export function CapturePage() {
                   setLifecycle({ busy: false, confirmScheduled: false, deleteOpen: false, message: null, error: null })
                 }}
                 className={clsx(
-                  'flex items-center gap-1 rounded-full border px-4 py-1.5 text-sm',
+                  'flex items-center gap-1.5 whitespace-nowrap rounded-full border px-4 py-1.5 text-sm shadow-sm',
                   p.platform === tab
-                    ? 'border-[var(--color-primary)] bg-[var(--color-primary-soft)] font-semibold text-[var(--color-primary-dark)]'
-                    : 'border-[var(--color-border)] text-[var(--color-text-primary)]',
+                    ? 'border-[var(--color-primary)] bg-[var(--color-surface)] font-semibold text-[var(--color-primary-dark)] ring-2 ring-[var(--color-primary-light)]'
+                    : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-primary)]',
                 )}
               >
-                {!AWAITING_REVIEW.includes(p.status) && <Check size={14} aria-label={STATUS_LABELS[p.status]} />}
+                <PlatformLogo platform={p.platform} />
                 {PLATFORMS.find((x) => x.id === p.platform)?.name}
+                {!AWAITING_REVIEW.includes(p.status) && <Check size={14} aria-label={STATUS_LABELS[p.status]} />}
               </button>
             ))}
             {PLATFORMS.filter((x) => !posts.some((p) => p.platform === x.id)).map((x) => (
               <button key={x.id} type="button" onClick={() => addPlatform(x.id)} disabled={!online || adding !== null}
-                className="flex items-center gap-1 rounded-full border border-dashed border-[var(--color-border)] px-4 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50">
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-dashed border-[var(--color-primary-light)] bg-[var(--color-surface)]/70 px-4 py-1.5 text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50">
                 {adding === x.id ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+                <PlatformLogo platform={x.id} />
                 {adding === x.id ? `Writing the ${x.name}...` : `Also write ${x.name}`}
               </button>
             ))}
-          </div>
+          </SwipeRow>
 
           {active.platform === 'substack' && (
             <label className="mb-3 block text-sm font-medium text-[var(--color-text-primary)]">
@@ -1001,6 +1007,7 @@ export function CapturePage() {
                 <label key={p.id} className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
                   <input type="checkbox" checked={on} onChange={() => togglePlatform(p.id)}
                     disabled={on && platforms.length === 1} className="h-4 w-4 accent-[var(--color-primary-dark)]" />
+                  <PlatformLogo platform={p.id} />
                   {p.name}
                 </label>
               )

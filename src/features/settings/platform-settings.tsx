@@ -6,6 +6,7 @@ import { useOnline } from '@/features/onboarding/use-online'
 import { PLATFORMS, type Platform } from '@/features/content/api/content-service'
 import { DRAFT_PLATFORMS_KEY, saveDraftPlatforms, useDraftPlatforms } from '@/features/content/use-allowances'
 import { showSuccess } from '@/components/ui/show-success'
+import { PlatformLogo } from '@/components/ui/platform-logo'
 
 /**
  * Owner decision (21 Nov 2026): drafts are written for LinkedIn only unless the person chooses more.
@@ -50,6 +51,7 @@ export function PlatformSettings() {
               <label key={p.id} className="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
                 <input type="checkbox" checked={on} onChange={() => toggle(p.id)} disabled={on && current.length === 1}
                   className="h-4 w-4 accent-[var(--color-primary-dark)]" />
+                <PlatformLogo platform={p.id} />
                 {p.name}
               </label>
             )

@@ -7,6 +7,7 @@ import { PlatformSettings } from '@/features/settings/platform-settings'
 import { DeleteAccount } from '@/features/settings/delete-account'
 import { DownloadData } from '@/features/settings/download-data'
 import { NotificationSettings } from '@/features/settings/notification-settings'
+import { PlatformLogo } from '@/components/ui/platform-logo'
 
 const SECTIONS = [
   { id: 'settings-profile', label: 'Profile and preferences' },
@@ -42,7 +43,11 @@ export function SettingsPage() {
         <h2 id="accounts-title" className="mb-3 mt-2 text-xl font-bold text-[var(--color-text-primary)]">Connected accounts</h2>
         <LinkedInConnectionCard />
         <Card>
-          <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">X and Substack</h3>
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-[var(--color-text-primary)]">
+            <PlatformLogo platform="x" size={20} />
+            <PlatformLogo platform="substack" size={20} />
+            X and Substack
+          </h3>
           <p className="text-sm text-[var(--color-text-secondary)]">
             No connection needed. Tick them under Platforms to write for, and Hiba writes those drafts too. You use Copy to post them yourself.
           </p>

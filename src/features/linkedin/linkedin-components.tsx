@@ -16,6 +16,7 @@ import {
   SCHEDULE_ERROR_TEXT, ScheduleError, cancelSchedule, checkScheduleTime, formatWhen, fromLocalInput, schedulePost,
   suggestedTime, timeZoneName, toLocalInput, type ScheduleErrorCode,
 } from '@/features/content/api/schedule-service'
+import { PlatformLogo } from '@/components/ui/platform-logo'
 
 const primaryBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50'
@@ -80,7 +81,7 @@ export function LinkedInConnectionCard() {
   return (
     <Card>
       <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0a66c2] text-sm font-bold text-white" aria-hidden="true">in</span>
+        <PlatformLogo platform="linkedin" size={40} />
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">LinkedIn</h2>
           <CancelledNotice />
