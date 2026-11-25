@@ -6,6 +6,8 @@ import {
 } from '@/features/onboarding/steps'
 import { useSpeechInput } from '@/features/onboarding/use-speech-input'
 import { ICONS } from '@/features/onboarding/icons'
+import { PlatformLogo } from '@/components/ui/platform-logo'
+import type { Platform } from '@/features/content/api/content-service'
 
 interface StepInputProps {
   step: OnboardingStep
@@ -147,11 +149,8 @@ function groupClass(display: OnboardingStep['display']) {
   }
 }
 
-const BRAND: Record<string, { text: string; className: string }> = {
-  linkedin: { text: 'in', className: 'bg-[#0a66c2] text-white' },
-  'x-twitter': { text: 'X', className: 'bg-black text-white' },
-  substack: { text: 'S', className: 'bg-[#ff6719] text-white' },
-}
+// The real logos (owner, 25 Nov 2026), keyed by the onboarding answer.
+const BRAND: Record<string, Platform> = { linkedin: 'linkedin', 'x-twitter': 'x', substack: 'substack' }
 
 function OptionButton({ step, option, on, onClick }: { step: OnboardingStep; option: StepOption; on: boolean; onClick: () => void }) {
   const Icon = option.icon ? ICONS[option.icon] : undefined
@@ -193,7 +192,7 @@ function OptionButton({ step, option, on, onClick }: { step: OnboardingStep; opt
       <button type="button" aria-pressed={on} onClick={onClick}
         className={clsx(base, state, 'flex items-center gap-3 rounded-[var(--radius-lg)] border px-4 py-3')}>
         {brand ? (
-          <span className={clsx('flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold', brand.className)}>{brand.text}</span>
+          <PlatformLogo platform={brand} size={32} />
         ) : Icon ? (
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary-soft)] text-[var(--color-primary-dark)]"><Icon size={18} aria-hidden="true" /></span>
         ) : null}

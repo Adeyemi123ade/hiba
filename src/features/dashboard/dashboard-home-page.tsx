@@ -12,6 +12,7 @@ import {
 import { StatusBadge } from '@/components/ui/status-badge'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { ActivityCard } from '@/features/dashboard/activity-card'
+import { PlatformLogo } from '@/components/ui/platform-logo'
 
 function greeting(date = new Date()) {
   const h = date.getHours()
@@ -41,7 +42,7 @@ function IdeaRow({ ideaId, posts, action }: { ideaId: string; posts: Post[]; act
         <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[var(--color-text-secondary)]">
           {posts.map((p) => (
             <li key={p.id} className="inline-flex items-center gap-1.5">
-              {platformName(p.platform)} <StatusBadge status={p.status} />
+              <PlatformLogo platform={p.platform} size={14} />{platformName(p.platform)} <StatusBadge status={p.status} />
             </li>
           ))}
         </ul>
@@ -195,8 +196,8 @@ export function DashboardHomePage() {
               <ul>
                 {upcoming.map((p) => (
                   <li key={p.id} className="border-t border-[var(--color-border)] py-2 text-sm first:border-t-0">
-                    <Link to={`/dashboard/capture?idea=${p.idea_id}`} className="underline">
-                      {platformName(p.platform)} · {new Date(p.scheduled_for as string).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    <Link to={`/dashboard/capture?idea=${p.idea_id}`} className="inline-flex items-center gap-1.5 underline">
+                      <PlatformLogo platform={p.platform} size={14} />{platformName(p.platform)} · {new Date(p.scheduled_for as string).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                     </Link>
                   </li>
                 ))}

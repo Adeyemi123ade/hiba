@@ -10,6 +10,7 @@ import {
   SCHEDULE_ERROR_TEXT, ScheduleError, fetchCalendarPosts, timeZoneName, type CalendarPost,
 } from '@/features/content/api/schedule-service'
 import { MonthView } from '@/features/calendar/month-view'
+import { PlatformLogo } from '@/components/ui/platform-logo'
 
 const platformName = (id: string) => PLATFORMS.find((p) => p.id === id)?.name ?? id
 const firstLine = (text: string) => {
@@ -185,7 +186,7 @@ function Row({ post, when, children }: { post: CalendarPost; when: string | null
     <li className="border-t border-[var(--color-border)] py-2.5 first:border-t-0">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {when && <span className="w-14 shrink-0 font-semibold tabular-nums text-[var(--color-text-primary)]">{when}</span>}
-        <span className="text-[var(--color-text-secondary)]">{platformName(post.platform)}</span>
+        <span className="inline-flex items-center gap-1.5 text-[var(--color-text-secondary)]"><PlatformLogo platform={post.platform} size={14} />{platformName(post.platform)}</span>
         <StatusBadge status={post.status} />
       </div>
       <p className="mt-1 break-words text-sm text-[var(--color-text-primary)]">{firstLine(post.body) || '(empty post)'}</p>
