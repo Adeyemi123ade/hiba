@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Pencil } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { SignInAgainButton } from '@/features/auth/components/sign-in-again-button'
 import { useSession } from '@/features/auth/use-session'
 import { useOnline } from '@/features/onboarding/use-online'
 import { supabase } from '@/lib/supabase'
 import { NAME_MAX, cleanName, validateName } from '@/lib/person-name'
+import { showSuccess } from '@/components/ui/show-success'
 
 interface Names { first_name: string | null; last_name: string | null }
 
@@ -40,14 +41,12 @@ export function NameSettings() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [expired, setExpired] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
 
   function open() {
     setFirst(names.data?.first_name ?? '')
     setLast(names.data?.last_name ?? '')
     setErrors({})
     setSaveError(null)
-    setSaved(false)
     setEditing(true)
   }
 
@@ -74,7 +73,7 @@ export function NameSettings() {
     }
     await queryClient.invalidateQueries({ queryKey: ['profile-names', userId] })
     setEditing(false)
-    setSaved(true)
+    showSuccess('Name saved.')
   }
 
   // Names not available on the server yet (for example migration 0012 not run): say so plainly.
@@ -97,9 +96,6 @@ export function NameSettings() {
             <div className="mt-1 h-4 w-40 animate-pulse rounded bg-[var(--color-border)]" aria-label="Loading your name" />
           ) : !editing && (
             <p className="mt-0.5 text-sm text-[var(--color-text-secondary)]">{shown || 'Not added yet'}</p>
-          )}
-          {saved && !editing && (
-            <p role="status" className="mt-1 flex items-center gap-1 text-sm text-[var(--color-primary-dark)]"><Check size={14} aria-hidden="true" /> Name saved.</p>
           )}
         </div>
         {!editing && names.isSuccess && (

@@ -5,6 +5,7 @@ import { useSession } from '@/features/auth/use-session'
 import { useOnline } from '@/features/onboarding/use-online'
 import { PLATFORMS, type Platform } from '@/features/content/api/content-service'
 import { DRAFT_PLATFORMS_KEY, saveDraftPlatforms, useDraftPlatforms } from '@/features/content/use-allowances'
+import { showSuccess } from '@/components/ui/show-success'
 
 /**
  * Owner decision (21 Nov 2026): drafts are written for LinkedIn only unless the person chooses more.
@@ -26,6 +27,7 @@ export function PlatformSettings() {
     try {
       await saveDraftPlatforms(next)
       setState('saved')
+      showSuccess('Saved.')
     } catch {
       setState('failed')
       void queryClient.invalidateQueries({ queryKey: DRAFT_PLATFORMS_KEY })
@@ -55,7 +57,6 @@ export function PlatformSettings() {
         </div>
       </fieldset>
       <p className="mt-2 text-xs" aria-live="polite">
-        {state === 'saved' && <span className="text-[var(--color-text-secondary)]">Saved.</span>}
         {state === 'failed' && <span className="text-[var(--color-error)]">We could not save that.</span>}
         {!online && <span className="text-[var(--color-text-secondary)]">You are offline. Check your network connection and try again.</span>}
       </p>

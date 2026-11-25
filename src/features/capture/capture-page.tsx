@@ -34,6 +34,7 @@ import {
   AWAITING_REVIEW, ContentError, ERROR_TEXT, IDEA_MAX, PLATFORMS, STATUS_LABELS, approvePost, lengthCheck, cleanIdea, fetchIdea, generateDrafts, saveIdea,
   restoreVersion, savePostBody, archivePost, restorePost, wasPublished, type Angle, type ContentErrorCode, type Platform, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
+import { showSuccess } from '@/components/ui/show-success'
 
 type Phase = 'loading' | 'write' | 'working' | 'drafts'
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed'
@@ -511,7 +512,8 @@ export function CapturePage() {
     const content = active.title ? `${active.title}\n\n${active.body}` : active.body
     try {
       await navigator.clipboard.writeText(content)
-      setCopied('ok')
+      setCopied(null)
+      showSuccess('Copied. Paste it wherever you like.')
     } catch {
       setCopied('failed')
     }
@@ -785,7 +787,6 @@ export function CapturePage() {
               </div>
             </div>
           )}
-          {copied === 'ok' && <p role="status" className="mt-2 text-sm text-[var(--color-primary-dark)]">Copied. Paste it wherever you like.</p>}
           {copied === 'failed' && (
             <p role="alert" className="mt-2 text-sm text-[var(--color-error)]">
               Your browser blocked copying. Select the text above and copy it yourself.
