@@ -22,7 +22,7 @@ export const PRIVACY: LegalSection[] = [
   ['7. International transfers', ["Your information may be processed in countries other than your own, including the European Union and the United States. We rely on our providers' contractual safeguards for these transfers."]],
   ['8. How long we keep it', [
     'We keep your information while your account is active.',
-    'Images and files on a post: our copy is deleted after the post is published to LinkedIn, or when you remove it from a draft. Your image library stays on your device until you delete it there.',
+    'Images and files on a post: we keep them with the post, also after it is published, so you can see what each post looked like. They are deleted when you remove them from the post, delete the post, or delete your account. Your image library stays on your device until you delete it there.',
     "Deleting your account: you can do this yourself in Settings, under Delete account. Your account, content, usage records, connected accounts and stored files are deleted straight away, except where the law requires us to keep something. Copies in our providers' backups, if any, expire within 90 days. We keep only a count of deletions, with the date, and nothing that identifies you.",
     'Connected-account tokens are removed when you disconnect or delete your account. Posts already published stay on LinkedIn until you delete them there.',
   ]],

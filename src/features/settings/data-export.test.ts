@@ -103,7 +103,7 @@ describe('Download my data (HPD-159)', () => {
     expect(html).toContain('Connected as Sulaimon A.')
     expect(html).toContain('Careers, AI')
     expect(html).toContain('<img src="images/post-1-image-1.jpg"')
-    expect(html).toContain('An image that Hiba no longer keeps')
+    expect(html).toContain('An image that Hiba no longer has')
     expect(html).toContain('My deck.pdf (no longer kept by Hiba)')
     expect(html.indexOf('First')).toBeLessThan(html.indexOf('Second'))
     expect(html).toContain('2 earlier versions of this post are in my-data.json')

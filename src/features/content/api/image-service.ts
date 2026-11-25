@@ -254,41 +254,5 @@ export async function downloadImage(path: string): Promise<Blob | null> {
   return error ? null : data
 }
 
-const SWEEP_KEY = (userId: string) => `hiba-posted-images-cleaned-${userId}`
-const SWEEP_EVERY_MS = 6 * 60 * 60 * 1000
-
-/**
- * Once a post is on LinkedIn, Hiba no longer needs its copy of the images: LinkedIn has its own,
- * and the original stays in the person's library on their device. This removes those copies,
- * keeping any image another unsent post still uses, and the old online library (kept until the
- * owner decides). Runs quietly at most every few hours; failures are retried next time.
- */
-export async function cleanUpPostedImages(userId: string): Promise<void> {
-  let last = 0
-  try {
-    last = Number(localStorage.getItem(SWEEP_KEY(userId)) ?? 0)
-  } catch { /* storage blocked: just run */ }
-  const startedAt = Date.now()
-  if (startedAt - last < SWEEP_EVERY_MS || offline()) return
-  // A day of overlap, so a post published while a sweep ran is never missed.
-  const since = new Date(Math.max(0, last - 24 * 60 * 60 * 1000)).toISOString()
-
-  const [posted, pending, library] = await Promise.all([
-    supabase.from('posts').select('images, image_path').eq('status', 'published').gte('published_at', since)
-      .not('image_path', 'is', null).limit(1000),
-    supabase.from('posts').select('images, image_path').neq('status', 'published').not('image_path', 'is', null).limit(5000),
-    supabase.from('images').select('path').limit(5000),
-  ])
-  if (posted.error || pending.error) return
-  const pathsOf = (rows: unknown[] | null) =>
-    (rows ?? []).flatMap((r) => imagesOf(r as { images: PostImageItem[] | null; image_path: string | null }).map((i) => i.path))
-  const keep = new Set([...pathsOf(pending.data), ...(library.error ? [] : (library.data ?? []).map((r) => r.path as string))])
-  const remove = [...new Set(pathsOf(posted.data))].filter((p) => !keep.has(p))
-  for (let i = 0; i < remove.length; i += 100) {
-    const { error } = await supabase.storage.from(IMAGE_BUCKET).remove(remove.slice(i, i + 100))
-    if (error) return
-  }
-  try {
-    localStorage.setItem(SWEEP_KEY(userId), String(startedAt))
-  } catch { /* fine: it runs again next time */ }
-}
+// Owner, 25 Nov 2026: a post keeps its images after it is published, so it is clear which post is which.
+// They are removed only when the person removes them, deletes the post, or deletes their account.

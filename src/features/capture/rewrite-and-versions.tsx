@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { History, Loader2, RefreshCw } from 'lucide-react'
+import { Check, History, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
   ContentError, ERROR_TEXT, GUIDANCE_MAX, fetchVersions, type ContentErrorCode, type Post, type PostVersion,
 } from '@/features/content/api/content-service'
+import { SwipeRow } from '@/components/ui/swipe-row'
+import { reasonsIn, toggleReason } from '@/features/capture/rewrite-reasons'
 
 const outlineBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-[var(--color-primary-dark)] disabled:cursor-not-allowed disabled:opacity-50'
@@ -14,6 +16,7 @@ const primaryBtn =
 const codeOf = (e: unknown): ContentErrorCode => (e instanceof ContentError ? e.code : 'unknown')
 
 const SUGGESTIONS = ['Make it shorter', 'More personal', 'More practical', 'Simpler words', 'Stronger opening']
+
 
 /** HPD-50: ask for a new version of one draft, optionally saying what should change. */
 export function RewriteBox({ platformName, online, onRewrite }: {
@@ -63,15 +66,25 @@ export function RewriteBox({ platformName, online, onRewrite }: {
       <label htmlFor="rewrite-guidance" className="block text-sm font-semibold text-[var(--color-text-primary)]">
         What should change in the {platformName}? <span className="font-normal text-[var(--color-text-secondary)]">(optional)</span>
       </label>
-      <div className="mt-2 flex flex-wrap gap-2">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} type="button" disabled={working}
-            onClick={() => setGuidance((g) => (g.trim() ? `${g.trim()}. ${s}` : s).slice(0, GUIDANCE_MAX))}
-            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs text-[var(--color-text-primary)] hover:border-[var(--color-primary-light)]">
-            {s}
-          </button>
-        ))}
-      </div>
+      {/* Owner, 25 Nov 2026: a tap must show it worked. Picked reasons turn green with a tick; tap again to remove. */}
+      <SwipeRow role="group" aria-label="Quick reasons" outerClassName="mt-2">
+        {SUGGESTIONS.map((s) => {
+          const on = reasonsIn(guidance).includes(s)
+          return (
+            <button key={s} type="button" disabled={working} aria-pressed={on}
+              onClick={() => setGuidance((g) => toggleReason(g, s))}
+              className={clsx(
+                'inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1.5 text-sm shadow-sm transition active:scale-95 disabled:opacity-50',
+                on
+                  ? 'border-[var(--color-primary-dark)] bg-[var(--color-primary-dark)] font-semibold text-white'
+                  : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-primary)] hover:border-[var(--color-primary-light)]',
+              )}>
+              {on ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+              {s}
+            </button>
+          )
+        })}
+      </SwipeRow>
       <textarea
         id="rewrite-guidance"
         value={guidance}
