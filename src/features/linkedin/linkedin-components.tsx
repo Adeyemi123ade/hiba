@@ -17,6 +17,7 @@ import {
   suggestedTime, timeZoneName, toLocalInput, type ScheduleErrorCode,
 } from '@/features/content/api/schedule-service'
 import { PlatformLogo } from '@/components/ui/platform-logo'
+import { PostImageGrid } from '@/features/linkedin/post-image-grid'
 
 const primaryBtn =
   'inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] bg-[var(--color-primary-dark)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50'
@@ -355,15 +356,8 @@ export function LinkedInPublishPanel({ postId, ideaId, publishedUrl, isPublished
           <div className="mt-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-white p-3">
             <p className="whitespace-pre-line break-words text-sm text-[var(--color-text-primary)]">{text}</p>
             {images.length > 0 && (
-              <div className={`mt-3 grid gap-1 ${images.length === 1 ? 'grid-cols-1' : images.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
-                {images.map((img, i) => preview.imageUrls[i] ? (
-                  <img key={img.path} src={preview.imageUrls[i]!} alt={img.alt || `Image ${i + 1} attached to this post`}
-                    className={`${images.length === 1 ? 'max-h-[28rem] object-contain' : 'h-28 object-cover'} w-full rounded-[var(--radius-sm)]`} />
-                ) : (
-                  <span key={img.path} className="flex h-28 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-bg-soft-green)] px-1 text-center text-xs text-[var(--color-text-secondary)]">
-                    Image {i + 1}: preview could not load, it is still posted
-                  </span>
-                ))}
+              <div className="-mx-3 mt-3">
+                <PostImageGrid images={images.map((img, i) => ({ key: img.path, url: preview.imageUrls[i] ?? null, alt: img.alt ?? '' }))} />
               </div>
             )}
             {attachment && <div className="mt-3"><AttachmentCard postId={postId} attachment={attachment} editable={false} /></div>}
