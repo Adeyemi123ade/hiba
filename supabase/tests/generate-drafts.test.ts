@@ -3,8 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import './deno-stub'
 import {
-  ANGLE_KINDS, COMMENTS_MAX, commentProblems, excessWords, measureVoice, nextKinds, overLimits, parseAngles,
-  parseClarify, parseComments, parseOneComment, qualityScore, sourcesHash, styleProblems, voiceProblems,
+  ANGLE_KINDS, COMMENTS_MAX, buildCommentsPrompt, buildPrompt, commentProblems, excessWords, measureVoice, nextKinds, overLimits, parseAngles,
+  parseClarify, parseComments, parseOneComment, qualityScore, recentFeedback, sourcesHash, styleProblems, voiceProblems,
   type AngleKind, type VoiceStats,
 } from '../functions/generate-drafts/index.ts'
 
@@ -178,26 +178,112 @@ describe('the person\'s voice', () => {
 describe('follow-up comments', () => {
   const ok = 'What surprised me most was how quickly the team adjusted. Nobody missed the meetings, and we finally had whole afternoons to think about the work that matters.'
 
-  it('accepts a comment of 20 to 50 words', () => {
+  // The owner's own examples (brief of 28 Nov 2026, HPD-176).
+  const prdPost = 'Having a PRD is great and important\n\nbut the context behind the requirements matters just as much.'
+  const goodSet = [
+    'Two people can read the same requirement and walk away with completely different pictures of what to build.',
+    "Here's the simple version I'd start with:\n✅ What we decided\n✅ Why we chose it over the other option\n✅ What would make us revisit it\n\nThree lines that save a lot of confusion later.",
+    'The best test I know is to ask a new engineer to explain the requirement back to you 🙂\n\nIf their version surprises you, the context is missing, not the detail.\n\nFix that before the sprint starts, because it only gets more expensive after.',
+    'Context also ages. A requirement that made sense in March can mislead someone in June.',
+  ]
+
+  it('accepts comments of very different lengths, with icon steps and one emoji', () => {
     expect(commentProblems([ok], 'The post')).toEqual([])
+    expect(commentProblems(goodSet, prdPost)).toEqual([])
+  })
+
+  it('rejects the owner\'s bad example: praise opener and buzzwords', () => {
+    const bad = 'Absolutely! Context is the cornerstone of successful product execution. It bridges the gap between strategic alignment and operational excellence, ensuring stakeholders leverage clarity to drive impactful outcomes.'
+    const problems = commentProblems([bad], prdPost)
+    expect(problems).toEqual(expect.arrayContaining([
+      'comment 1 opens with "absolutely"; start with the point itself, not praise or agreement',
+      expect.stringMatching(/^comment 1 sounds artificial \(.*"leverage".*"cornerstone".*\)/),
+      'comment 1 has a line with more than two sentences; split it for phones',
+    ]))
+  })
+
+  it('does not mistake a real opening for a praise opener', () => {
+    expect(commentProblems(['Exactly how you frame the requirement decides what gets built.'], 'The post')).toEqual([])
+    expect(commentProblems(['Absolutely nothing changes until someone writes down the why.'], 'The post')).toEqual([])
+    expect(commentProblems(['Exactly. And the why is the part people skip most often.'], 'The post'))
+      .toContain('comment 1 opens with "exactly"; start with the point itself, not praise or agreement')
+  })
+
+  it('allows a buzzword the person uses in their own post or writing', () => {
+    const c = 'The real leverage is in writing the why next to each requirement, not in adding more pages.'
+    expect(commentProblems([c], 'The post')).toEqual([expect.stringContaining('"leverage"')])
+    expect(commentProblems([c], 'We leverage PRDs every day.')).toEqual([])
+    expect(commentProblems([c], 'The post', { own: 'I leverage templates.' })).toEqual([])
   })
 
   it('names every broken rule, by comment number', () => {
     const problems = commentProblems([
       'Great point, thanks.',
-      words(51),
+      words(91),
       `${ok} #focus`,
       `1. ${ok}`,
-      `${ok}\n\nSecond.\n\nThird.`,
+      'First line here.\nSecond line here.\nThird line here.',
+      'Steps:\n- one thing to do\n- another thing to do',
+      'Do this:\n✅ one step\n👉 another step',
+      'Nice 🎉 and more 🚀 words to reach the minimum length.',
     ], 'The post')
     expect(problems).toEqual(expect.arrayContaining([
       'comment 1 used banned phrases: "great point"',
-      'comment 1 has 3 words; it needs at least 20',
-      'comment 2 has 51 words; the limit is 50',
+      'comment 1 opens with "great point"; start with the point itself, not praise or agreement',
+      'comment 1 has 3 words; it needs at least 8',
+      'comment 2 has 91 words; the limit is 90',
       'comment 3 has hashtags',
       'comment 4 starts with a number or label',
-      'comment 5 has more than two paragraphs',
+      'comment 5 has a paragraph of more than two lines; use short paragraphs with a blank line between them',
+      'comment 6 uses bullets, dashes or numbers; start each step with the same simple icon instead',
+      'comment 7 mixes different icons for its steps; use one icon for all of them',
+      'comment 8 has 2 emojis; use at most one',
     ]))
+  })
+
+  it('wants a set that opens differently, varies in length and does not put an emoji in every comment', () => {
+    const same = [
+      `The truth is ${words(12, 'that')}`, `The truth is ${words(14, 'this')}`,
+      `Most teams ${words(13, 'skip')} 🙂`, `Context ages ${words(12, 'fast')} 🚀`,
+    ]
+    const problems = commentProblems(same.map((c, i) => (i < 2 ? `${c} 😀` : c)), 'The post')
+    expect(problems).toEqual(expect.arrayContaining([
+      'comments 1 and 2 open the same way ("the truth"); open every comment differently',
+      'the comments are all about the same length; make some one or two short lines and others fuller',
+      'every comment uses an emoji; use them in only a few, where they fit',
+    ]))
+  })
+
+  it('checks a rewritten comment against the opening of the others', () => {
+    expect(commentProblems(['The truth is that nobody reads a PRD twice before building.'], 'The post', { others: ['The truth is simple: write it down.'] }))
+      .toContain('it opens the same way as another comment ("the truth")')
+  })
+
+  it('writes comments as the author, from the shared brand core, with past change requests as content', () => {
+    const profile = { preferred_name: 'Ada', onboarding: { craft: ['product-manager'], tone: ['friendly'] } }
+    const voice = { stats: measureVoice([words(40, 'Short line.')]), description: null, examples: [] }
+    const { system, user } = buildCommentsPrompt(profile, 'idea', prdPost, { count: 5 }, voice, ['Less formal'])
+    expect(system).toContain('You are the person who wrote this LinkedIn post')
+    expect(system).toContain('THEIR BRAND')
+    expect(system).toContain('teach it forward')
+    expect(system).toContain('Under <feedback>')
+    expect(system).not.toContain('They do not use emojis') // comments follow their own emoji rule
+    expect(user).toContain('<feedback>\n- Less formal\n</feedback>')
+    expect(buildCommentsPrompt(profile, 'idea', prdPost, { count: 5 }).system).not.toContain('Under <feedback>')
+  })
+
+  it('gives drafts the same brand core and keeps the closing question', () => {
+    const { system, user } = buildPrompt(null, 'idea', undefined, undefined, undefined, ['linkedin'], ['Shorter'])
+    expect(system).toContain('THEIR BRAND')
+    expect(system).toContain('end with a specific question')
+    expect(user).toContain('<feedback>\n- Shorter\n</feedback>')
+    expect(buildPrompt(null, 'idea').user).not.toContain('<feedback>')
+  })
+
+  it('learns from what the person asked to change, without angle notes or repeats', () => {
+    expect(recentFeedback(['Less formal', 'Angle: Common mistake', 'less formal', '  Shorter  sentences ', null, 7]))
+      .toEqual(['Less formal', 'Shorter sentences'])
+    expect(recentFeedback(Array.from({ length: 10 }, (_, i) => `note ${i}`))).toHaveLength(6)
   })
 
   it('catches a comment that repeats a line of the post word for word', () => {

@@ -52,7 +52,7 @@ function dueText(dueAt: string, now: number) {
 
 /**
  * Follow-up comments (owner's master prompt, sections 10 and 11; owner decisions of 19 Nov 2026).
- * Hiba writes 5 to 10 comments of 20 to 50 words. The person edits, deletes, reorders, rewrites,
+ * Hiba writes 5 to 10 comments of varied length (HPD-176). The person edits, deletes, reorders, rewrites,
  * chooses and approves them. Once the post is live on LinkedIn, Hiba posts each approved comment
  * after a different random gap of 15 to 60 seconds. The person can pause, resume or stop at any time,
  * sees the next comment and when it goes out, and sees what was posted and what failed. A failed
@@ -289,7 +289,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
         <MessagesSquare size={20} aria-hidden="true" /> Follow-up comments
       </h2>
       <p className="mt-1 text-sm text-[var(--color-text-secondary)]">
-        Short comments (20 to 50 words) that Hiba posts under your own LinkedIn post, so the conversation goes deeper.
+        Comments that Hiba posts under your own LinkedIn post, each adding something new, so the conversation goes deeper.
         Only comments you approve are posted, one by one, after your post is live. Choose how long Hiba waits before each one.
         Hiba posts them by itself, even if you close this page or your laptop.
       </p>
@@ -415,7 +415,7 @@ export function CommentsPanel({ ideaId, postId, online, enabled, postStatus, pos
                         onChange={(e) => { setEditing({ id: c.id, text: e.target.value }); setEditError(null) }}
                         className="min-h-[110px] w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg-cream)] p-2 text-sm aria-[invalid=true]:border-red-700" />
                       <p id={`comment-count-${c.id}`} className={clsx('flex flex-wrap items-center gap-1 text-xs', editing.text.length > COMMENT_MAX_CHARS ? 'text-red-700' : 'text-[var(--color-text-secondary)]')}>
-                        {editing.text.trim() ? editing.text.trim().split(/\s+/).length : 0} words (aim for 20 to 50) · {editing.text.length} of {COMMENT_MAX_CHARS} characters
+                        {editing.text.trim() ? editing.text.trim().split(/\s+/).length : 0} words (up to 90) · {editing.text.length} of {COMMENT_MAX_CHARS} characters
                       </p>
                       {c.status === 'approved' && <p className="text-xs text-amber-800">Saving a change sends this comment back to draft. Approve it again to post it.</p>}
                       {editError && <p role="alert" className="mt-1 text-sm text-red-700">{editError}</p>}

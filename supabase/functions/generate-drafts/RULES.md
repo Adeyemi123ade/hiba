@@ -20,10 +20,14 @@ Taken from your onboarding answers, sent in plain words:
 | A post you wrote before | Optional writing sample (first 3000 characters), used only to copy your style |
 | Your idea | What you typed or said in Capture (up to 2000 characters) |
 
+**Changes you asked for before (HPD-176):** what you typed (or the quick reasons you tapped) under "Write it again" on your last drafts, up to 6 notes, newest first. The AI treats them as lasting preferences about how you want to sound. Angle notes are left out.
+
 Not sent to the AI: your email, your password, your LinkedIn account, your posting time,
 frequency or approval settings, or anything from other people.
 
 ## 2. The rules the AI must follow (your master prompt, 18 Nov 2026)
+
+**Your brand comes first (28 Nov 2026, HPD-176).** Every draft and comment starts from the same brand instructions: use who you are, who you want to reach, what you are working toward and your subjects; write so your audience remembers what you do and stand for; stay within your subjects and real expertise; never sound like a LinkedIn influencer, a corporate statement, a motivational speaker or an AI thought leader; never claim experience, results or clients you did not give. Then each task (drafts, comments) adds its own rules below.
 
 **Understand before writing**
 1. Work out the central argument of your idea first: what you want to say and why.
@@ -38,6 +42,7 @@ frequency or approval settings, or anything from other people.
 - Everyday language. Professional terms from your field (your "Work" answer, for example product discovery or stakeholder alignment for a product manager) are used where they make the point more accurate.
 - Banned phrases: "In today's fast-paced world", "In this ever-evolving landscape", "Let's dive deep", "At the end of the day", "It is worth noting that", "Here's the thing", "The reality is simple", "What do you think?".
 - No hype, no stacked motivational lines, no emojis unless your writing sample uses them. Hiba also avoids em dashes, a common sign of AI writing (Hiba's addition).
+- Buzzwords are avoided as writing habits (for example "game changer", "paradigm shift", "transformative", "leverage", "unlock", "cornerstone", "seamless", "impactful", "bridges the gap"). Not forbidden: used only when truly the most precise word. Develop the idea instead of decorating it.
 
 **Format for LinkedIn and X (your own layout, 18 Nov 2026)**
 - Short lines: one sentence each, never more than two short sentences.
@@ -64,16 +69,16 @@ frequency or approval settings, or anything from other people.
 
 | Platform | Limit | What the AI aims for |
 |---|---|---|
-| LinkedIn | **200 words** maximum | 120 to 180 words, short paragraphs, ends with one question to readers |
-| X | **100 words** in total, **280 characters** per post (X's own rule) | A thread of 1 to 4 posts, each at most 270 characters |
-| Substack | **1500 words** maximum | A title under 80 characters, a body of 400 to 1500 words with an opening, 2 to 4 short sections and a closing thought |
+| LinkedIn | **300 words** maximum (HPD-164) | 180 to 280 words, short lines, ends with one question to readers |
+| X | **150 words** in total, **280 characters** per post (X's own rule) | A thread of 1 to 6 posts, each at most 270 characters |
+| Substack | **3000 words** maximum | A title under 80 characters, a body of 800 to 3000 words with an opening, 3 to 6 short sections and a closing thought |
 
 How the limits are enforced:
 
 - If the first answer breaks a limit or a writing rule, the AI is asked once more, told exactly what was wrong.
 - If a draft is still too long, Hiba keeps the attempt closest to the limit, shows the word count in red, and you cannot approve it until you shorten it.
 - Hiba never cuts your text silently: nothing is shortened behind your back.
-- Posting to LinkedIn is refused on the server for anything over 200 words.
+- Posting to LinkedIn is refused on the server for anything over the limit.
 
 ## 4. "Write it again"
 
@@ -94,19 +99,30 @@ insight, question for your audience, and short motivational post.
 - When you pick "Write my posts from this", all drafts that are not approved yet are written again from that angle, following every rule above. Approved, scheduled and published posts are never changed. Your earlier text stays under "Earlier versions", marked "Written from the angle: ...".
 - Angles stay linked to the idea. You can save them, discard them, or bring discarded ones back. Asking for angles counts toward the hourly limit below.
 
-## 6. Follow-up comments (master prompt sections 10 and 11; owner decisions of 19 Nov 2026)
+## 6. Follow-up comments (owner's brief of 28 Nov 2026, HPD-176; replaces the 19 Nov rules)
 
-On the LinkedIn post you can ask for 5 to 10 follow-up comments. The AI sees your context (section 1), your idea, your LinkedIn post and your writing sample.
+On the LinkedIn post you can ask for 5 to 10 follow-up comments. The AI sees your context (section 1, including the changes you asked for before), your idea, your LinkedIn post and your own writing.
 
-**What each comment must be**
-- **20 to 50 words**, in normal prose of one or two short paragraphs (never more than two).
-- Connects to the post and adds ONE new thought: an extra perspective, an explanation, a practical example, a common misconception, a related lesson, a practical or technical consideration, a question, or an overlooked implication.
-- Never repeats the post or another comment. Sounds like you adding to your own discussion.
-- Never invents facts, names, numbers or experiences; examples are general or hypothetical unless your idea gave them.
-- Never filler: "Great point", "Another thing to consider", "I completely agree", "Let me add something", plus every banned phrase in section 2. No hashtags, no numbering, no em dashes.
-- The comments form a sequence that develops your argument; the subject decides the order, not a template.
+**Who is talking:** you, under your own post, talking directly to one reader ("I", "you"), like continuing a conversation. Never "the author" or "this post" from the outside, never praise for your own post.
 
-Hiba checks every list (word count 20 to 50, at most two paragraphs, banned phrases, hashtags, numbering, lines copied from the post) and asks the AI once more if needed, keeping the better attempt. "Write again" on one comment shows the AI the others so it says something different.
+**What the comments do**
+- If the post teaches, they pick up where it stops and teach it forward: why it matters, how to do it, the steps, the trap people fall into, an angle most people miss. Never re-explaining what the post said.
+- If the post is a story, opinion or observation, they go further: an implication, the other side, a respectful challenge, a clarification, a practical example.
+- Each comment makes one distinct contribution; across the set they use different kinds (observation, perspective, how-to with steps, implication, challenge, common mistake, clarification, question, or a simple natural acknowledgement). Five strong comments beat ten that repeat each other.
+- At most two questions in the whole set. No sales pitch, no generic motivation, no artificial praise.
+- Never invents facts, names, numbers, results or experiences; personal examples only if your idea or post gives them.
+
+**How they sound and look**
+- Plain spoken words, specific to this post. Never opening with praise or agreement ("Absolutely!", "Well said!", "This is powerful", "So true", "Love this", "It's funny"), and every comment opens differently.
+- Buzzwords are avoided as habits (section 2 list, plus "synergy", "holistic", "delve", "empower", "elevate", "operational excellence", "strategic alignment", "digital ecosystem" and similar). A buzzword you use in your own post or writing is part of your vocabulary and is allowed.
+- Lengths vary on purpose: some one or two lines (about 8 to 25 words), others fuller (40 to 90 words). Never more than 90.
+- Each paragraph is one or two short lines with a blank line between, for phones.
+- Steps go on their own lines, each starting with the same simple icon (for example ✅, 👉 or ➜). No bullets, dashes or numbers.
+- An emoji where it fits the mood and your tone: at most one per comment, only in some comments. None if your tone is formal.
+- No hashtags, no labels, no em dashes.
+- The AI is shown your two examples (the PRD post and the visibility post) with a bad and a good comment, plus a step-by-step example, to show the difference in quality.
+
+**Automatic check:** Hiba checks every list for banned phrases, praise openers, buzzwords you do not use yourself, length (8 to 90 words), lines with more than two sentences, paragraphs of more than two lines, bullets or numbers, mixed step icons, more than one emoji, hashtags, labels, lines copied from the post, comments that open the same way, a set where every comment is about the same length, and an emoji in every comment. If anything is wrong the AI is told exactly what and asked once more, and the better attempt is kept. "Write again" on one comment shows the AI the others so it says something different and opens differently. Model and cost are unchanged (`gpt-4o-mini`); comments use a slightly higher creativity setting (0.75) so the set varies.
 
 **Posting to LinkedIn (automatic, after your approval)**
 - Only comments you **approve** are posted. Editing an approved comment sends it back to draft.
